@@ -1,0 +1,55 @@
+Each approach comes with its own potential drawbacks. Here’s a breakdown of the key challenges you might face with each:  
+
+---
+
+### **1️⃣ Parquet in S3 + DuckDB/Trino**  
+✅ **Pros Recap:** Cost-effective, scalable, optimized for batch analytics  
+⚠️ **Potential Drawbacks:**  
+| **Drawback**              | **Explanation** |
+|--------------------------|----------------|
+| **Data Freshness Delay** | Since Parquet files are immutable, new data requires metadata refresh (e.g., Iceberg/Hudi/Delta for versioning). If you need near real-time updates, this could be a bottleneck. |
+| **Query Latency on Large Data** | While columnar storage improves query speed, query engines like Trino and DuckDB still require scanning large datasets, which can slow down performance for interactive queries. |
+| **High Concurrency Limitations** | DuckDB is single-node and better suited for local queries, while Trino scales but requires additional coordination and worker nodes for high concurrency. |
+| **Complex Window Aggregation Handling** | Trino supports window functions, but performance optimization requires partitioning strategies to avoid full table scans. |
+
+---
+
+### **2️⃣ Parquet in S3 + Apache Pinot**  
+✅ **Pros Recap:** Near real-time analytics, optimized for OLAP queries  
+⚠️ **Potential Drawbacks:**  
+| **Drawback**              | **Explanation** |
+|--------------------------|----------------|
+| **Complex Ingestion Setup** | To achieve real-time ingestion, you need to integrate **Kafka or a streaming pipeline**, which adds operational overhead. Batch ingestion is easier but delays freshness. |
+| **Higher Infrastructure Cost** | Pinot requires a **controller, broker, real-time servers, and storage nodes**, making it more expensive than Trino/DuckDB on S3. |
+| **Operational Complexity** | Maintaining a **distributed system** like Pinot requires expertise in indexing, segment merging, and scaling storage nodes efficiently. |
+| **Limited Flexibility for Joins** | Pinot is not optimized for complex joins (like Trino or RDS), so queries involving multiple datasets may need **denormalized tables or pre-aggregations**. |
+
+---
+
+### **3️⃣ Materialized Views in RDS**  
+✅ **Pros Recap:** Simple setup, strong consistency, SQL-friendly  
+⚠️ **Potential Drawbacks:**  
+| **Drawback**              | **Explanation** |
+|--------------------------|----------------|
+| **Scaling Bottlenecks** | RDS is designed for transactional workloads (OLTP), so it doesn’t handle high-volume analytical queries well. Materialized views can become **slow and expensive** as data grows. |
+| **Refresh Overhead** | Materialized views require **manual or scheduled refreshes**, which may introduce **staleness** unless an incremental strategy is used. |
+| **Compute and Storage Costs** | Large materialized views with frequent updates put pressure on the database, requiring a **high-tier RDS instance**, increasing costs. |
+| **Not Optimized for OLAP** | Even with indexing, materialized views are **not as performant as columnar storage** (like Parquet) for large-scale analytical queries. |
+
+---
+
+### **Summary of Drawbacks by Approach**
+| **Approach**                 | **Main Concern** |
+|------------------------------|-----------------|
+| **Parquet in S3 + DuckDB/Trino** | **Data freshness and high query latency on large datasets** |
+| **Parquet in S3 + Apache Pinot** | **High infrastructure and ingestion complexity** |
+| **Materialized Views in RDS** | **Scalability and expensive refresh operations** |
+
+---
+
+### **Final Considerations**
+- If you **need real-time analytics**, **Apache Pinot** is the best choice, but it comes at the cost of **higher complexity and infrastructure overhead**.
+- If you **want a simple, cost-effective batch analytics solution**, **Trino/DuckDB on Parquet in S3** works well but might have **slower query performance for fresh data**.
+- If **simplicity and transactional consistency** are priorities, **Materialized Views in RDS** can work, but **scalability and performance will be a challenge**.
+
+Would you like a recommendation on **handling incremental updates** or **optimizing window aggregations** for any of these? 🚀
