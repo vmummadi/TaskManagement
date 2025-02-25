@@ -1,0 +1,43 @@
+For analytical queries on millions of records while ensuring near real-time data availability, let's break down the trade-offs between **Parquet in S3 (queried using DuckDB, Pinot, etc.)** and **Materialized Views in RDS**:
+
+---
+
+### **Option 1: Parquet in S3 + Querying with DuckDB, Apache Pinot, etc.**
+✅ **Pros:**
+- **Columnar storage**: Parquet is optimized for analytical queries, significantly reducing I/O.
+- **Decoupled storage & compute**: Avoids the resource constraints of RDS.
+- **Scalability**: Frameworks like **Trino, DuckDB, and Apache Pinot** allow for distributed and efficient querying.
+- **Cost-effective**: Object storage (S3) is cheaper than maintaining a high-performance RDS instance.
+- **Better suited for OLAP workloads**: Queries on large datasets with aggregations and filtering will perform well.
+
+⚠️ **Cons:**
+- **Data freshness challenges**: Since data is continuously loaded, updates need to be handled via partitioning, compaction, or metadata refresh strategies (e.g., Iceberg/Hudi/Delta Lake).
+- **Query performance depends on indexing strategies**: Pinot, for example, supports real-time ingestion, but tools like DuckDB and Trino are read-only unless paired with a write mechanism.
+
+👉 **Best Use Case**: If queries are highly analytical (e.g., aggregations, roll-ups, or filtering on massive datasets), this is a better choice.
+
+---
+
+### **Option 2: Materialized Views in RDS**
+✅ **Pros:**
+- **Automatically refreshed views**: If set up correctly, materialized views can be updated periodically.
+- **Strong consistency**: Since it’s in an RDBMS, ACID properties ensure reliable data.
+- **Lower query latency for pre-aggregated data**: Materialized views can precompute expensive joins/aggregations.
+
+⚠️ **Cons:**
+- **Scalability concerns**: RDS has limitations on storage, compute, and query concurrency.
+- **Refresh delays**: Unless using **incremental refresh**, materialized views need to be manually or periodically refreshed, which might introduce lag.
+- **Not built for high-throughput analytical workloads**: Traditional RDS instances are not optimized for OLAP-style queries.
+
+👉 **Best Use Case**: If your queries involve frequent small-scale joins/aggregations and need strong consistency, this is a reasonable option. But for large-scale analytics, it will struggle.
+
+---
+
+### **Recommendation**
+If **real-time freshness** is critical and queries are analytical, consider **Apache Pinot with Parquet in S3**.  
+- Pinot supports **real-time ingestion** and is built for low-latency OLAP queries.  
+- Alternatively, if batch analytics is fine, **Trino or DuckDB on partitioned Parquet files in S3** is a cost-effective option.  
+
+If you **require strong consistency and transactional integrity**, then **Materialized Views in RDS** might work, but it will struggle with scale.
+
+Would you like recommendations on how to structure the ingestion pipeline for real-time updates?
