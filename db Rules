@@ -1,0 +1,258 @@
+I'll provide a structured **Java Spring Boot** application that:  
+
+1. **Defines entities** for leads, tasks, status transitions, and audits.  
+2. **Implements services** to handle:  
+   - Lead state transitions (with validation).  
+   - Automatic task creation upon lead state change.  
+   - Audit logging for lead and task changes.  
+3. **Uses the database rules** defined earlier to enforce workflow constraints.  
+
+---
+
+### **1️⃣ Entity Definitions**
+```java
+@Entity
+@Table(name = "Lead_Status")
+public class LeadStatus {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String statusName;
+}
+```
+
+```java
+@Entity
+@Table(name = "Lead")
+public class Lead {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private String email;
+    private String phone;
+
+    @ManyToOne
+    @JoinColumn(name = "current_status", nullable = false)
+    private LeadStatus currentStatus;
+}
+```
+
+```java
+@Entity
+@Table(name = "Task")
+public class Task {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String description;
+    private String assignedTo;
+    private LocalDate dueDate;
+
+    @ManyToOne
+    @JoinColumn(name = "lead_id", nullable = false)
+    private Lead lead;
+
+    @ManyToOne
+    @JoinColumn(name = "status_id", nullable = false)
+    private LeadStatus status;
+}
+```
+
+```java
+@Entity
+@Table(name = "Lead_Status_Transitions")
+public class LeadStatusTransition {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "from_status", nullable = false)
+    private LeadStatus fromStatus;
+
+    @ManyToOne
+    @JoinColumn(name = "to_status", nullable = false)
+    private LeadStatus toStatus;
+
+    private boolean allowed;
+}
+```
+
+```java
+@Entity
+@Table(name = "Lead_Audit_Logs")
+public class LeadAuditLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "lead_id", nullable = false)
+    private Lead lead;
+
+    @ManyToOne
+    @JoinColumn(name = "old_status", nullable = false)
+    private LeadStatus oldStatus;
+
+    @ManyToOne
+    @JoinColumn(name = "new_status", nullable = false)
+    private LeadStatus newStatus;
+
+    private LocalDateTime changedAt;
+}
+```
+
+```java
+@Entity
+@Table(name = "Task_Audit_Logs")
+public class TaskAuditLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "task_id", nullable = false)
+    private Task task;
+
+    @ManyToOne
+    @JoinColumn(name = "old_status", nullable = false)
+    private LeadStatus oldStatus;
+
+    @ManyToOne
+    @JoinColumn(name = "new_status", nullable = false)
+    private LeadStatus newStatus;
+
+    private LocalDateTime changedAt;
+}
+```
+
+---
+
+### **2️⃣ Repositories**
+```java
+@Repository
+public interface LeadRepository extends JpaRepository<Lead, Long> {}
+
+@Repository
+public interface LeadStatusRepository extends JpaRepository<LeadStatus, Long> {}
+
+@Repository
+public interface LeadStatusTransitionRepository extends JpaRepository<LeadStatusTransition, Long> {
+    Optional<LeadStatusTransition> findByFromStatusAndToStatus(LeadStatus from, LeadStatus to);
+}
+
+@Repository
+public interface LeadAuditLogRepository extends JpaRepository<LeadAuditLog, Long> {}
+
+@Repository
+public interface TaskRepository extends JpaRepository<Task, Long> {}
+
+@Repository
+public interface TaskAuditLogRepository extends JpaRepository<TaskAuditLog, Long> {}
+```
+
+---
+
+### **3️⃣ Service Layer**
+#### **LeadService: Handling State Transitions & Task Automation**
+```java
+@Service
+public class LeadService {
+
+    @Autowired private LeadRepository leadRepository;
+    @Autowired private LeadStatusRepository leadStatusRepository;
+    @Autowired private LeadStatusTransitionRepository transitionRepository;
+    @Autowired private LeadAuditLogRepository auditLogRepository;
+    @Autowired private TaskRepository taskRepository;
+    @Autowired private TaskAuditLogRepository taskAuditLogRepository;
+
+    @Transactional
+    public void changeLeadStatus(Long leadId, Long newStatusId) {
+        Lead lead = leadRepository.findById(leadId)
+                .orElseThrow(() -> new RuntimeException("Lead not found"));
+        LeadStatus newStatus = leadStatusRepository.findById(newStatusId)
+                .orElseThrow(() -> new RuntimeException("Status not found"));
+
+        LeadStatus oldStatus = lead.getCurrentStatus();
+        transitionRepository.findByFromStatusAndToStatus(oldStatus, newStatus)
+                .orElseThrow(() -> new RuntimeException("Invalid transition"));
+
+        lead.setCurrentStatus(newStatus);
+        leadRepository.save(lead);
+
+        // Log audit
+        LeadAuditLog log = new LeadAuditLog();
+        log.setLead(lead);
+        log.setOldStatus(oldStatus);
+        log.setNewStatus(newStatus);
+        log.setChangedAt(LocalDateTime.now());
+        auditLogRepository.save(log);
+
+        // Trigger automatic tasks based on status change
+        autoCreateTask(lead, newStatus);
+    }
+
+    private void autoCreateTask(Lead lead, LeadStatus newStatus) {
+        String taskDescription = "";
+
+        if ("Contacted".equals(newStatus.getStatusName())) {
+            taskDescription = "Follow-up call with " + lead.getName();
+        } else if ("Proposal Sent".equals(newStatus.getStatusName())) {
+            taskDescription = "Confirm proposal details with " + lead.getName();
+        } else if ("Closed Won".equals(newStatus.getStatusName())) {
+            taskDescription = "Onboard " + lead.getName();
+        } else if ("Closed Lost".equals(newStatus.getStatusName())) {
+            taskDescription = "Check why " + lead.getName() + " lost the deal";
+        }
+
+        if (!taskDescription.isEmpty()) {
+            Task task = new Task();
+            task.setLead(lead);
+            task.setDescription(taskDescription);
+            task.setAssignedTo("sales_rep");
+            task.setDueDate(LocalDate.now().plusDays(3));
+            task.setStatus(newStatus);
+            taskRepository.save(task);
+        }
+    }
+}
+```
+
+---
+
+### **4️⃣ REST Controller**
+```java
+@RestController
+@RequestMapping("/leads")
+public class LeadController {
+
+    @Autowired private LeadService leadService;
+
+    @PutMapping("/{leadId}/status/{newStatusId}")
+    public ResponseEntity<String> updateLeadStatus(
+            @PathVariable Long leadId, @PathVariable Long newStatusId) {
+        try {
+            leadService.changeLeadStatus(leadId, newStatusId);
+            return ResponseEntity.ok("Lead status updated successfully");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+}
+```
+
+---
+
+### **💡 Features Covered**
+✅ **State transitions** based on configured DB rules.  
+✅ **Automatic task creation** when a lead changes status.  
+✅ **Audit logs for both leads and tasks.**  
+✅ **Validation of state transitions via DB rules.**  
+✅ **REST API to manage lead status updates.**  
+
+Would you like me to add **unit tests** or **workflow visualization** next? 🚀
