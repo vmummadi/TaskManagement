@@ -1,0 +1,132 @@
+### **SQL Scripts for Initial Data & Transition Rules Setup**  
+
+This script will:  
+1. Insert **lead statuses** (e.g., New, Contacted, Proposal Sent, Closed Won, Closed Lost).  
+2. Define **allowed state transitions** in `Lead_Status_Transitions`.  
+3. Insert **sample leads** and assign them statuses.  
+4. Insert **tasks** linked to leads.  
+
+---
+
+### **1️⃣ Insert Lead Statuses**
+```sql
+INSERT INTO Lead_Status (status_name) VALUES 
+    ('New'),
+    ('Contacted'),
+    ('Proposal Sent'),
+    ('Closed Won'),
+    ('Closed Lost');
+```
+
+Retrieve Status IDs:
+```sql
+SELECT * FROM Lead_Status;
+```
+Assuming IDs are:
+```
+1 -> New
+2 -> Contacted
+3 -> Proposal Sent
+4 -> Closed Won
+5 -> Closed Lost
+```
+
+---
+
+### **2️⃣ Define Allowed Status Transitions**
+```sql
+INSERT INTO Lead_Status_Transitions (from_status, to_status, allowed) VALUES 
+    (1, 2, TRUE), -- New -> Contacted
+    (2, 3, TRUE), -- Contacted -> Proposal Sent
+    (3, 4, TRUE), -- Proposal Sent -> Closed Won
+    (3, 5, TRUE), -- Proposal Sent -> Closed Lost
+    (5, 2, TRUE); -- Closed Lost -> Contacted (Revert case)
+```
+
+---
+
+### **3️⃣ Insert Sample Leads**
+```sql
+INSERT INTO Lead (name, email, phone, current_status) VALUES 
+    ('Alice Johnson', 'alice@example.com', '123-456-7890', 1), -- New
+    ('Bob Smith', 'bob@example.com', '987-654-3210', 2), -- Contacted
+    ('Charlie Brown', 'charlie@example.com', '555-666-7777', 3); -- Proposal Sent
+```
+
+Retrieve Lead IDs:
+```sql
+SELECT * FROM Lead;
+```
+Assuming IDs are:
+```
+1 -> Alice Johnson
+2 -> Bob Smith
+3 -> Charlie Brown
+```
+
+---
+
+### **4️⃣ Insert Sample Tasks**
+```sql
+INSERT INTO Task (lead_id, description, assigned_to, due_date, status) VALUES 
+    (1, 'Call Alice for initial contact', 'sales_rep_1', '2025-03-01', 2), -- Contacted
+    (2, 'Send proposal to Bob', 'sales_rep_2', '2025-03-02', 3), -- Proposal Sent
+    (3, 'Follow up with Charlie', 'sales_rep_3', '2025-03-03', 3); -- Proposal Sent
+```
+
+Retrieve Task IDs:
+```sql
+SELECT * FROM Task;
+```
+Assuming IDs are:
+```
+1 -> Call Alice
+2 -> Send proposal to Bob
+3 -> Follow up with Charlie
+```
+
+---
+
+### **5️⃣ Insert Audit Logs for Status Transitions**
+```sql
+INSERT INTO Lead_Audit_Logs (lead_id, old_status, new_status, changed_at) VALUES 
+    (2, 1, 2, '2025-02-20 10:00:00'), -- Alice: New -> Contacted
+    (3, 2, 3, '2025-02-21 11:00:00'); -- Bob: Contacted -> Proposal Sent
+```
+
+```sql
+INSERT INTO Task_Audit_Logs (task_id, old_status, new_status, changed_at) VALUES 
+    (1, 1, 2, '2025-02-20 10:30:00'), -- Task moved to Contacted
+    (2, 2, 3, '2025-02-21 11:30:00'); -- Task moved to Proposal Sent
+```
+
+---
+
+### **🎯 How to Use This Data?**
+1. **Verify Status Transitions**  
+   ```sql
+   SELECT ls1.status_name AS from_status, ls2.status_name AS to_status 
+   FROM Lead_Status_Transitions lst
+   JOIN Lead_Status ls1 ON lst.from_status = ls1.status_id
+   JOIN Lead_Status ls2 ON lst.to_status = ls2.status_id;
+   ```
+   
+2. **Check a Lead's Status History**  
+   ```sql
+   SELECT l.name, ls1.status_name AS old_status, ls2.status_name AS new_status, la.changed_at 
+   FROM Lead_Audit_Logs la
+   JOIN Lead l ON la.lead_id = l.lead_id
+   JOIN Lead_Status ls1 ON la.old_status = ls1.status_id
+   JOIN Lead_Status ls2 ON la.new_status = ls2.status_id
+   WHERE l.name = 'Alice Johnson'
+   ORDER BY la.changed_at DESC;
+   ```
+
+---
+
+### **📌 Key Benefits**
+✅ **Flexible status transitions** → Easily configurable workflow.  
+✅ **Audit trail for accountability** → Logs every lead & task status change.  
+✅ **Supports rollbacks** → Can revert status transitions dynamically.  
+
+Would you like API endpoints for managing workflow changes dynamically? 🚀
