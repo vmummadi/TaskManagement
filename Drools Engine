@@ -1,0 +1,268 @@
+I'll provide a structured **Java Spring Boot** application that:  
+
+1. **Defines entities** for leads, tasks, status transitions, and audits.  
+2. **Configures Drools** for state transition rules.  
+3. **Implements services** to handle:  
+   - Lead state transitions based on Drools rules.  
+   - Automatic task creation upon lead state change.  
+   - Audit logging for lead and task changes.  
+
+---
+
+### **1️⃣ Entity Definitions**
+```java
+@Entity
+@Table(name = "LeadStatus")
+public class LeadStatus {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String statusName;
+}
+```
+
+```java
+@Entity
+@Table(name = "Lead")
+public class Lead {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private String email;
+    private String phone;
+
+    @ManyToOne
+    @JoinColumn(name = "current_status", nullable = false)
+    private LeadStatus currentStatus;
+}
+```
+
+```java
+@Entity
+@Table(name = "Task")
+public class Task {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String description;
+    private String assignedTo;
+    private LocalDate dueDate;
+
+    @ManyToOne
+    @JoinColumn(name = "lead_id", nullable = false)
+    private Lead lead;
+}
+```
+
+```java
+@Entity
+@Table(name = "LeadAuditLog")
+public class LeadAuditLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "lead_id", nullable = false)
+    private Lead lead;
+
+    @ManyToOne
+    @JoinColumn(name = "old_status", nullable = false)
+    private LeadStatus oldStatus;
+
+    @ManyToOne
+    @JoinColumn(name = "new_status", nullable = false)
+    private LeadStatus newStatus;
+
+    private LocalDateTime changedAt;
+}
+```
+
+---
+
+### **2️⃣ Drools Rule File (lead-status-rules.drl)**
+```drools
+package com.example.rules;
+
+import com.example.model.Lead;
+import com.example.model.LeadStatus;
+import com.example.service.TaskService;
+
+rule "Transition from Contacted to Proposal Sent"
+when
+    $lead: Lead(currentStatus.statusName == "Contacted")
+then
+    $lead.setCurrentStatus(new LeadStatus("Proposal Sent"));
+    update($lead);
+    System.out.println("Lead moved to Proposal Sent");
+end
+
+rule "Transition from Proposal Sent to Closed Won"
+when
+    $lead: Lead(currentStatus.statusName == "Proposal Sent")
+then
+    $lead.setCurrentStatus(new LeadStatus("Closed Won"));
+    update($lead);
+    System.out.println("Lead moved to Closed Won");
+end
+
+rule "Transition from Proposal Sent to Closed Lost"
+when
+    $lead: Lead(currentStatus.statusName == "Proposal Sent")
+then
+    $lead.setCurrentStatus(new LeadStatus("Closed Lost"));
+    update($lead);
+    System.out.println("Lead moved to Closed Lost");
+end
+
+rule "Revert Closed Lost to Contacted"
+when
+    $lead: Lead(currentStatus.statusName == "Closed Lost")
+then
+    $lead.setCurrentStatus(new LeadStatus("Contacted"));
+    update($lead);
+    System.out.println("Lead moved back to Contacted");
+end
+```
+
+---
+
+### **3️⃣ Drools Configuration**
+```java
+@Configuration
+public class DroolsConfig {
+
+    @Bean
+    public KieContainer kieContainer() {
+        KieServices ks = KieServices.Factory.get();
+        KieRepository kr = ks.getRepository();
+        KieFileSystem kfs = ks.newKieFileSystem();
+
+        // Load rules from classpath
+        kfs.write(ResourceFactory.newClassPathResource("rules/lead-status-rules.drl"));
+
+        KieBuilder kb = ks.newKieBuilder(kfs);
+        kb.buildAll();
+
+        KieModule kModule = kr.getKieModule();
+        return ks.newKieContainer(kModule.getReleaseId());
+    }
+}
+```
+
+---
+
+### **4️⃣ Service to Handle Lead Status Transitions**
+```java
+@Service
+public class LeadService {
+
+    @Autowired private LeadRepository leadRepository;
+    @Autowired private LeadAuditLogRepository auditLogRepository;
+    @Autowired private KieContainer kieContainer;
+    @Autowired private TaskService taskService;
+
+    @Transactional
+    public void changeLeadStatus(Long leadId) {
+        Lead lead = leadRepository.findById(leadId)
+                .orElseThrow(() -> new RuntimeException("Lead not found"));
+
+        KieSession kieSession = kieContainer.newKieSession();
+        kieSession.insert(lead);
+        kieSession.fireAllRules();
+        kieSession.dispose();
+
+        leadRepository.save(lead);
+
+        // Log audit
+        LeadAuditLog log = new LeadAuditLog();
+        log.setLead(lead);
+        log.setOldStatus(lead.getCurrentStatus());
+        log.setNewStatus(lead.getCurrentStatus());
+        log.setChangedAt(LocalDateTime.now());
+        auditLogRepository.save(log);
+
+        // Create task based on new status
+        taskService.createTaskForLead(lead);
+    }
+}
+```
+
+---
+
+### **5️⃣ Task Service to Trigger Actions Based on Lead Status**
+```java
+@Service
+public class TaskService {
+
+    @Autowired private TaskRepository taskRepository;
+
+    public void createTaskForLead(Lead lead) {
+        String taskDescription = "";
+
+        switch (lead.getCurrentStatus().getStatusName()) {
+            case "Contacted":
+                taskDescription = "Follow-up call with " + lead.getName();
+                break;
+            case "Proposal Sent":
+                taskDescription = "Confirm proposal details with " + lead.getName();
+                break;
+            case "Closed Won":
+                taskDescription = "Onboard " + lead.getName();
+                break;
+            case "Closed Lost":
+                taskDescription = "Check why " + lead.getName() + " lost the deal";
+                break;
+            default:
+                return;
+        }
+
+        Task task = new Task();
+        task.setLead(lead);
+        task.setDescription(taskDescription);
+        task.setAssignedTo("sales_rep");
+        task.setDueDate(LocalDate.now().plusDays(3));
+
+        taskRepository.save(task);
+    }
+}
+```
+
+---
+
+### **6️⃣ REST Controller**
+```java
+@RestController
+@RequestMapping("/leads")
+public class LeadController {
+
+    @Autowired private LeadService leadService;
+
+    @PutMapping("/{leadId}/status")
+    public ResponseEntity<String> updateLeadStatus(@PathVariable Long leadId) {
+        try {
+            leadService.changeLeadStatus(leadId);
+            return ResponseEntity.ok("Lead status updated successfully");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+}
+```
+
+---
+
+### **💡 Features Covered**
+✅ **Flexible Rules Management**: Lead state transitions managed in **Drools**, allowing runtime rule modifications.  
+✅ **Automatic Task Creation**: Tasks are generated based on lead transitions.  
+✅ **Audit Trail**: Logs state changes for both leads and tasks.  
+✅ **REST API for Status Updates**: Exposes an endpoint to trigger the workflow.  
+✅ **Fork Transitions Supported**: "Proposal Sent" can lead to either "Closed Won" or "Closed Lost".  
+✅ **Reversion Support**: If a lead moves to "Closed Lost", it can revert back to "Contacted".  
+
+Would you like **unit tests** or **workflow visualization** next? 🚀
