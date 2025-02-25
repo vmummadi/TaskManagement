@@ -1,0 +1,120 @@
+create the DB Schema for the above task system.
+
+### **Database Schema for Lead Workflow & Task Management System**  
+
+This schema supports:  
+1. **Flexible State Transitions** via a rules-driven approach.  
+2. **Task Management** linked to leads.  
+3. **Audit Trail** for both tasks and leads.  
+4. **Workflow Visualization Support** (status transitions stored in DB).  
+
+---
+
+### **1️⃣ Entity-Relationship (ER) Diagram**
+```
++------------------+       +--------------------+       +------------------+        +--------------------+
+|     Lead        |       |    Lead_Status     |       |       Task       |        |  Task_Audit_Logs   |
++------------------+       +--------------------+       +------------------+        +--------------------+
+| lead_id (PK)    | ---+  | status_id (PK)     |       | task_id (PK)     | ---+   | audit_id (PK)      |
+| name            |    |  | status_name        |       | lead_id (FK)     |    |   | task_id (FK)      |
+| email           |    |  +--------------------+       | description      |    |   | old_status        |
+| phone           |    |         |                    | assigned_to      |    |   | new_status        |
+| current_status (FK) |         |                    | due_date         |    |   | changed_at        |
++------------------+         |                    | status (FK)      |    |   +--------------------+
+                             |                    +------------------+    |
++-----------------------+    |    +--------------------------+             |
+|  Lead_Audit_Logs      |    |    |   Lead_Status_Transitions |             |
++-----------------------+    |    +--------------------------+             |
+| audit_id (PK)         |    +--> | from_status (FK)         | <------------+
+| lead_id (FK)          |         | to_status (FK)           |
+| old_status            |         | allowed                  |
+| new_status            |         +--------------------------+
+| changed_at            |
++-----------------------+
+```
+
+---
+
+### **2️⃣ SQL Schema**
+```sql
+-- Table to store lead information
+CREATE TABLE Lead (
+    lead_id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    phone VARCHAR(50),
+    current_status INT REFERENCES Lead_Status(status_id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Table to store various lead statuses
+CREATE TABLE Lead_Status (
+    status_id SERIAL PRIMARY KEY,
+    status_name VARCHAR(100) UNIQUE NOT NULL
+);
+
+-- Table defining allowed status transitions (for workflow enforcement)
+CREATE TABLE Lead_Status_Transitions (
+    from_status INT REFERENCES Lead_Status(status_id),
+    to_status INT REFERENCES Lead_Status(status_id),
+    allowed BOOLEAN DEFAULT TRUE,
+    PRIMARY KEY (from_status, to_status)
+);
+
+-- Table to store tasks related to leads
+CREATE TABLE Task (
+    task_id SERIAL PRIMARY KEY,
+    lead_id INT REFERENCES Lead(lead_id),
+    description TEXT NOT NULL,
+    assigned_to VARCHAR(255),
+    due_date TIMESTAMP,
+    status INT REFERENCES Lead_Status(status_id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Audit log for task state changes
+CREATE TABLE Task_Audit_Logs (
+    audit_id SERIAL PRIMARY KEY,
+    task_id INT REFERENCES Task(task_id),
+    old_status INT REFERENCES Lead_Status(status_id),
+    new_status INT REFERENCES Lead_Status(status_id),
+    changed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Audit log for lead status changes
+CREATE TABLE Lead_Audit_Logs (
+    audit_id SERIAL PRIMARY KEY,
+    lead_id INT REFERENCES Lead(lead_id),
+    old_status INT REFERENCES Lead_Status(status_id),
+    new_status INT REFERENCES Lead_Status(status_id),
+    changed_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### **3️⃣ How It Works**
+1. **Lead Status Tracking**  
+   - `Lead.current_status` maintains the lead’s current status.  
+   - `Lead_Status_Transitions` enforces allowed state changes.  
+   - Changes are logged in `Lead_Audit_Logs`.  
+
+2. **Task Management**  
+   - Each lead can have multiple tasks.  
+   - `Task.status` tracks progress (Pending, In Progress, Completed, etc.).  
+   - Changes are logged in `Task_Audit_Logs`.  
+
+3. **Dynamic Workflow Updates**  
+   - Admins can modify `Lead_Status_Transitions` at runtime to allow/disallow status changes.  
+
+---
+
+### **🎯 Why This Schema?**
+✅ **Ensures data integrity** with foreign keys & constraints.  
+✅ **Supports flexible workflow management** via `Lead_Status_Transitions`.  
+✅ **Tracks history & compliance** with `Audit_Logs`.  
+✅ **Scalable for complex workflows** and reporting.  
+
+Would you like me to generate queries for inserting sample data and testing transitions? 🚀
