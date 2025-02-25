@@ -1,0 +1,198 @@
+### **Designing a "Workflow & Status Transitions" System**  
+
+A **Workflow & Status Transition** system ensures that leads progress through a well-defined lifecycle with clear transition rules and validations. It also allows automation, business rule enforcement, and auditability.
+
+---
+
+## **1️⃣ Functional Requirements**  
+
+### **Core Features:**  
+✅ **Define Workflow States** → Configure lead statuses and valid transitions.  
+✅ **State Transition Rules** → Restrict movement between statuses based on business logic.  
+✅ **Role-Based Access Control (RBAC)** → Only authorized users can change statuses.  
+✅ **Audit & History Tracking** → Log all status changes with timestamps and reasons.  
+✅ **Automated Actions** → Trigger follow-ups, reminders, and escalations based on status changes.  
+✅ **Customizable Workflows** → Allow admin users to modify workflows dynamically.
+
+---
+
+## **2️⃣ Lead Status Workflow Design**  
+
+### **Example Lead Status Flow**  
+```
+[New] → [Contacted] → [Qualified] → [Test Drive] → [Proposal Sent] → [Closed - Won]
+                            ↘ [Closed - Lost]  
+```
+
+### **State Transition Rules**  
+| Current Status     | Allowed Next Statuses | Conditions & Business Rules |
+|--------------------|----------------------|-----------------------------|
+| New               | Contacted, Closed - Lost | Auto-assigned or manually assigned to a sales rep |
+| Contacted         | Qualified, Closed - Lost | Customer responds to outreach |
+| Qualified        | Test Drive, Proposal Sent, Closed - Lost | Customer interested, needs further evaluation |
+| Test Drive        | Proposal Sent, Closed - Lost | Test drive completed |
+| Proposal Sent     | Closed - Won, Closed - Lost | Customer accepts/rejects proposal |
+| Closed - Won      | (Final State) | Successful deal |
+| Closed - Lost     | (Final State) | Lead is disqualified |
+
+---
+
+## **3️⃣ Data Model Design**  
+
+### **Entities & Relationships**  
+```sql
+CREATE TABLE LeadStatuses (
+    status_id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    is_final BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE LeadStatusTransitions (
+    transition_id SERIAL PRIMARY KEY,
+    from_status_id INT REFERENCES LeadStatuses(status_id),
+    to_status_id INT REFERENCES LeadStatuses(status_id),
+    requires_approval BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE Leads (
+    lead_id UUID PRIMARY KEY,
+    customer_id UUID NOT NULL,
+    current_status_id INT REFERENCES LeadStatuses(status_id),
+    assigned_to UUID REFERENCES Users(user_id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE LeadStatusHistory (
+    history_id UUID PRIMARY KEY,
+    lead_id UUID REFERENCES Leads(lead_id),
+    from_status INT REFERENCES LeadStatuses(status_id),
+    to_status INT REFERENCES LeadStatuses(status_id),
+    changed_by UUID REFERENCES Users(user_id),
+    changed_at TIMESTAMP DEFAULT NOW(),
+    reason TEXT
+);
+```
+
+---
+
+## **4️⃣ API Design (RESTful APIs for Lead Status Management)**  
+
+### **1. Fetch Available Transitions for a Lead**  
+```http
+GET /api/leads/{lead_id}/transitions
+```
+**Response:**
+```json
+{
+    "current_status": "Contacted",
+    "allowed_transitions": ["Qualified", "Closed - Lost"]
+}
+```
+
+### **2. Change Lead Status**  
+```http
+PUT /api/leads/{lead_id}/status
+{
+    "new_status": "Qualified",
+    "changed_by": "sales_rep_1",
+    "reason": "Customer interested in test drive"
+}
+```
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Lead status updated successfully"
+}
+```
+
+### **3. Fetch Status Change History for a Lead**  
+```http
+GET /api/leads/{lead_id}/history
+```
+**Response:**
+```json
+[
+    {
+        "from_status": "New",
+        "to_status": "Contacted",
+        "changed_by": "sales_rep_1",
+        "changed_at": "2024-02-21T10:30:00Z",
+        "reason": "Sales rep made the first call"
+    },
+    {
+        "from_status": "Contacted",
+        "to_status": "Qualified",
+        "changed_by": "sales_rep_1",
+        "changed_at": "2024-02-22T14:00:00Z",
+        "reason": "Customer requested test drive"
+    }
+]
+```
+
+---
+
+## **5️⃣ Business Rule Enforcement**  
+
+### **1. Enforcing Valid Transitions**  
+- When updating the status, check if the transition is allowed.  
+- Prevent invalid updates (e.g., skipping statuses).  
+
+```python
+def is_valid_transition(current_status, new_status):
+    allowed_transitions = {
+        "New": ["Contacted", "Closed - Lost"],
+        "Contacted": ["Qualified", "Closed - Lost"],
+        "Qualified": ["Test Drive", "Proposal Sent", "Closed - Lost"],
+        "Test Drive": ["Proposal Sent", "Closed - Lost"],
+        "Proposal Sent": ["Closed - Won", "Closed - Lost"],
+        "Closed - Won": [],
+        "Closed - Lost": []
+    }
+    return new_status in allowed_transitions.get(current_status, [])
+```
+
+### **2. Automated Actions & Triggers**  
+- **If a lead stays in "Contacted" for 3 days → Auto-reminder for sales rep.**  
+- **If a lead is "Proposal Sent" for more than 7 days → Escalate to manager.**  
+
+```python
+def check_lead_reminders():
+    overdue_leads = db.fetch_leads_with_no_update(days=3, status="Contacted")
+    for lead in overdue_leads:
+        send_reminder(lead["assigned_to"], "Follow up with lead")
+```
+
+---
+
+## **6️⃣ UI Design for Workflow Management**  
+
+### **Lead Management Dashboard**
+- **Kanban Board:** Drag-and-drop leads across status columns.
+- **Status Change Modal:** Allow users to change status with reasons.
+- **Audit Log View:** Show past status changes in a timeline.
+- **Auto-Reminders:** Highlight overdue leads.
+
+### **Admin Configuration Panel**
+- **Define Custom Workflows:** Admins can modify allowed transitions.
+- **Set Business Rules:** Configure auto-reminders and approval steps.
+- **Monitor Lead Pipeline:** Charts to visualize lead progress.
+
+---
+
+## **7️⃣ Scaling & Optimization**  
+- **Caching with Redis** → Speed up transition checks & status queries.  
+- **Event-Driven Updates (Kafka/SQS)** → Notify external systems on lead status changes.  
+- **Role-Based Access Control (RBAC)** → Ensure only authorized users update lead status.  
+
+---
+
+## **Final Thoughts**  
+This design ensures:  
+✔ **Structured Lead Lifecycle** → Prevents inconsistent lead handling.  
+✔ **Automated Follow-ups** → Ensures timely engagement with leads.  
+✔ **Auditability** → Keeps a clear history of lead movements.  
+✔ **Flexibility** → Allows dynamic configuration of workflows.  
+
+Would you like me to refine any specific part? 🚀
