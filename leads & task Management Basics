@@ -1,0 +1,163 @@
+### **Designing a "Lead Tracking & Status Management" System**  
+
+A **Lead Tracking & Status Management** system should provide a structured way to track, update, and monitor leads through different stages of the sales funnel while ensuring seamless interaction for sales teams. Below is a **high-level design** considering system components, data model, workflows, and architecture.  
+
+---
+
+## **1️⃣ System Components & Functional Requirements**  
+### **Core Functionalities:**  
+✅ **Lead Status Management** → Define and transition leads through statuses (e.g., New, Contacted, Follow-up, Test Drive, Proposal Sent, Won/Lost).  
+✅ **Activity Logging** → Track every interaction (calls, emails, meetings).  
+✅ **Assignment & Ownership** → Assign leads to specific sales reps or auto-reassign based on availability.  
+✅ **Notifications & Reminders** → Notify sales teams about upcoming actions (e.g., follow-ups, test drives).  
+✅ **Lead History & Audit Logs** → Maintain a record of status changes and interactions.  
+✅ **Reports & Dashboards** → Provide insights on lead movement and conversions.  
+
+---
+
+## **2️⃣ Data Model Design**  
+### **Entities & Relationships**  
+
+```sql
+CREATE TABLE Leads (
+    lead_id UUID PRIMARY KEY,
+    customer_id UUID NOT NULL,
+    source VARCHAR(50),  -- Website, Social Media, Referral, etc.
+    status VARCHAR(20) CHECK (status IN ('New', 'Contacted', 'Qualified', 'Test Drive', 'Proposal Sent', 'Closed - Won', 'Closed - Lost')),
+    assigned_to UUID REFERENCES Users(user_id), -- Sales Rep
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE LeadStatusHistory (
+    history_id UUID PRIMARY KEY,
+    lead_id UUID REFERENCES Leads(lead_id),
+    previous_status VARCHAR(20),
+    new_status VARCHAR(20),
+    changed_by UUID REFERENCES Users(user_id),
+    changed_at TIMESTAMP DEFAULT NOW(),
+    comments TEXT
+);
+
+CREATE TABLE LeadActivities (
+    activity_id UUID PRIMARY KEY,
+    lead_id UUID REFERENCES Leads(lead_id),
+    activity_type VARCHAR(50),  -- Call, Email, Meeting, SMS, Test Drive
+    activity_details TEXT,
+    activity_time TIMESTAMP DEFAULT NOW(),
+    performed_by UUID REFERENCES Users(user_id)
+);
+```
+
+---
+
+## **3️⃣ Workflow & Status Transitions**  
+A lead should progress through predefined states, ensuring sales reps follow an optimal engagement process.
+
+### **Lead Status Flow Diagram**
+```
+[New] → [Contacted] → [Qualified] → [Test Drive] → [Proposal Sent] → [Closed - Won]
+                            ↘ [Closed - Lost]  
+```
+
+### **Status Transition Rules**
+| Current Status     | Allowed Next Statuses |
+|--------------------|----------------------|
+| New               | Contacted, Closed - Lost |
+| Contacted         | Qualified, Closed - Lost |
+| Qualified        | Test Drive, Proposal Sent, Closed - Lost |
+| Test Drive        | Proposal Sent, Closed - Lost |
+| Proposal Sent     | Closed - Won, Closed - Lost |
+| Closed - Won      | (Final State) |
+| Closed - Lost     | (Final State) |
+
+---
+
+## **4️⃣ API Design (RESTful APIs)**
+### **1. Create a New Lead**
+```http
+POST /api/leads
+{
+    "customer_id": "12345",
+    "source": "Website",
+    "assigned_to": "sales_rep_1"
+}
+```
+
+### **2. Update Lead Status**
+```http
+PUT /api/leads/{lead_id}/status
+{
+    "new_status": "Qualified",
+    "changed_by": "sales_manager",
+    "comments": "Customer interested, awaiting test drive scheduling"
+}
+```
+
+### **3. Log a Lead Activity**
+```http
+POST /api/leads/{lead_id}/activities
+{
+    "activity_type": "Call",
+    "activity_details": "Spoke to customer, requested test drive for Monday",
+    "performed_by": "sales_rep_1"
+}
+```
+
+### **4. Fetch Lead Details with Status History**
+```http
+GET /api/leads/{lead_id}
+```
+
+### **5. Fetch Leads by Status**
+```http
+GET /api/leads?status=Contacted
+```
+
+---
+
+## **5️⃣ Architecture Design**  
+### **Tech Stack Choices**
+- **Backend:** Java (Spring Boot) / Python (FastAPI)  
+- **Database:** PostgreSQL (with JSONB for flexibility), Redis (for caching)  
+- **Frontend:** React / Angular (for Sales Dashboard)  
+- **Messaging:** Kafka / SQS (for event-based updates)  
+- **Authentication:** Auth0 / OAuth2 for user management  
+
+### **System Architecture Diagram**  
+```
+[Frontend (React, Angular)]  →  [Backend (Spring Boot / FastAPI)]  →  [PostgreSQL DB]
+                                              ↘  
+                                         [Redis Cache]  
+                                              ↘  
+                                          [Kafka Events]  → [Email / SMS Service]  
+```
+
+---
+
+## **6️⃣ Lead Tracking Dashboard (UI Features)**
+A user-friendly UI should provide:  
+✅ **Kanban View of Leads by Status**  
+✅ **Filters by Source, Status, Assigned Sales Rep**  
+✅ **Timeline View for Lead Activity**  
+✅ **Quick Actions (Call, Email, Test Drive Scheduling)**  
+✅ **Automated Follow-up Reminders**  
+
+---
+
+## **7️⃣ Event-Driven Automation (Enhancements)**
+- **Auto-Reminders:** If a lead is "Contacted" but no update in 3 days → Auto-reminder for follow-up.  
+- **Escalations:** If a lead is not assigned within 24 hours → Escalate to manager.  
+- **Lead Score Calculation:** Assign a score based on engagement (e.g., frequent calls = higher priority).  
+- **Predictive Analytics:** Use ML models to predict lead conversion probability.  
+
+---
+
+## **Final Thoughts**
+This design ensures:  
+✔ **Scalability** → Optimized DB schema & caching for fast retrieval.  
+✔ **Automation** → Reduce manual tracking with smart workflows.  
+✔ **Transparency** → Every status change & interaction is logged.  
+✔ **Sales Efficiency** → Helps prioritize leads with analytics-driven insights.  
+
+Would you like me to refine any part of this further? 🚀
