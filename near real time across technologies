@@ -1,0 +1,114 @@
+Since your **data is read-only** and **new data is continuously loaded**, the key challenge is ensuring **efficient incremental updates and optimized window aggregations**. Here’s a breakdown of how to handle these for each approach:
+
+---
+
+## **1️⃣ Parquet in S3 + DuckDB/Trino (Batch Analytics)**
+✅ **Best For:** Cost-effective analytics on large historical data (if freshness can tolerate minor delays)  
+⚠️ **Challenges:** Query latency on large datasets, managing incremental updates  
+
+### **Handling Incremental Updates**  
+- **Use Apache Iceberg, Hudi, or Delta Lake**: These provide **ACID transactions**, schema evolution, and efficient metadata handling for Parquet files.
+- **Partitioning & Compaction**:
+  - Partition by **time-based columns** (e.g., `date` or `hour`) to enable **incremental updates**.
+  - **Compaction strategies**:
+    - Small files? Use **compaction jobs** to merge them into larger ones for better query performance.
+    - Apache Hudi supports **merge-on-read** for near real-time updates.
+- **Metadata Caching**: DuckDB and Trino perform full scans unless you **enable metadata caching** (Iceberg helps with this).
+
+### **Optimizing Window Aggregations**
+- **Precompute aggregations in S3**:  
+  - Use **Apache Spark or Presto/Trino ETL jobs** to precompute **rolling windows** and store the results in **separate Parquet tables**.
+- **Use Trino’s `WINDOW` functions**:  
+  - Example: Compute **moving averages** for the last 7 days:
+    ```sql
+    SELECT 
+      user_id, 
+      event_date, 
+      SUM(sales) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_sales
+    FROM sales_data;
+    ```
+- **Leverage Query Federation**: If you need real-time external data, **federate queries across sources** using **Trino connectors**.
+
+---
+
+## **2️⃣ Parquet in S3 + Apache Pinot (Real-Time Analytics)**
+✅ **Best For:** Low-latency, real-time aggregations on streaming data  
+⚠️ **Challenges:** Complex ingestion setup, higher infrastructure costs  
+
+### **Handling Incremental Updates**
+- **Use Kafka for real-time ingestion**:
+  - Kafka → Pinot’s real-time table allows **incremental writes** with near real-time availability.
+  - If not using Kafka, use a **batch ingestion pipeline** (e.g., Spark, Flink) for periodic updates.
+- **Star-tree Indexing for Fast Aggregations**:
+  - Pinot supports **pre-aggregations via Star-tree indexing**, which can accelerate **group-bys and rollups**.
+- **Retention Policies**:
+  - Keep only recent data in **real-time tables** and periodically move older data to **offline tables** (backed by Parquet in S3).
+
+### **Optimizing Window Aggregations**
+- **Use Roll-up Tables**:
+  - Define **pre-aggregated Pinot tables** for common window queries (e.g., `1-hour`, `24-hour`, `7-day` aggregations).
+- **Use Time-Based Partitioning**:
+  - Create **time-partitioned segments** in Pinot to optimize window functions.
+  - Example of a **7-day rolling sum**:
+    ```sql
+    SELECT
+      user_id,
+      event_time,
+      SUM(sales) OVER (PARTITION BY user_id ORDER BY event_time RANGE BETWEEN INTERVAL '7' DAY PRECEDING AND CURRENT ROW) AS rolling_sales
+    FROM pinot_sales_table;
+    ```
+- **Hybrid Table Approach**:
+  - Use **real-time Pinot tables for fresh data** (last few days).
+  - Query **offline Pinot tables (S3-backed)** for historical data.
+  - Combine results via **query-time joins**.
+
+---
+
+## **3️⃣ Materialized Views in RDS (Small-Scale Aggregates)**
+✅ **Best For:** Small-scale, transactional aggregations (not recommended for high-scale analytics)  
+⚠️ **Challenges:** Scalability, refresh overhead  
+
+### **Handling Incremental Updates**
+- **Use Incremental Refresh Strategy**:
+  - Instead of `REFRESH MATERIALIZED VIEW`, use **incremental refresh** via triggers or scheduled jobs.
+  - Example:  
+    ```sql
+    CREATE MATERIALIZED VIEW mv_sales AS 
+    SELECT 
+      user_id, 
+      event_date, 
+      SUM(sales) AS total_sales 
+    FROM sales_table 
+    WHERE event_date > NOW() - INTERVAL '7 days'
+    GROUP BY user_id, event_date;
+    ```
+  - **Refresh only the new data**:
+    ```sql
+    REFRESH MATERIALIZED VIEW mv_sales WITH DATA;
+    ```
+- **Use Indexed Views**:
+  - Create indexes on frequently queried columns to speed up aggregations.
+
+### **Optimizing Window Aggregations**
+- **Use Window Functions with Indexing**:
+  ```sql
+  SELECT 
+    user_id, 
+    event_date, 
+    SUM(sales) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_sales
+  FROM mv_sales;
+  ```
+- **Partitioned Tables for Efficient Aggregations**:
+  - Instead of one huge materialized view, **partition by time** (e.g., daily partitions) and aggregate across partitions.
+
+---
+
+## **🚀 Final Recommendation**
+| **Requirement**        | **Best Approach** |
+|----------------------|-----------------|
+| **Cost-effective batch analytics** | Parquet in S3 + Trino/DuckDB |
+| **Real-time low-latency analytics** | Parquet in S3 + Apache Pinot |
+| **Transactional integrity (small data)** | Materialized Views in RDS |
+| **Scalability for long-term analytics** | Apache Pinot or Trino on Iceberg |
+
+Would you like specific **implementation details for any of these approaches**? 🚀
