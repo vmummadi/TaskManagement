@@ -1,0 +1,20 @@
+Here's a **tabular comparison** based on the key metrics relevant to your scenario (read-only data, new data continuously flowing in, and window aggregations for analytics):  
+
+| **Metric**            | **Parquet in S3 + DuckDB/Trino** | **Parquet in S3 + Apache Pinot** | **Materialized Views in RDS** |
+|-----------------------|--------------------------------|--------------------------------|------------------------------|
+| **Query Performance** | 🚀 Fast for large scans and aggregations (columnar storage) but may require optimization via partitioning | 🚀 Optimized for real-time, low-latency OLAP queries | ⚠️ Slower for large-scale analytical queries, better suited for small aggregates |
+| **Freshness of Data** | ⚠️ Requires periodic metadata refresh (unless using Iceberg/Hudi/Delta) | 🚀 Real-time ingestion with Kafka or batch ingestion | ⚠️ Refresh needs to be scheduled; delays depend on refresh strategy |
+| **Scalability** | 🚀 Scales well, limited by S3 and query engine resources | 🚀 Highly scalable with distributed architecture | ⚠️ Limited by RDS instance size and compute |
+| **Ease of Maintenance** | ✅ Simple, requires periodic reloading of metadata | ⚠️ More complex due to real-time ingestion setup | ✅ Easier to set up but needs careful tuning for refresh intervals |
+| **Storage Costs** | 💲 Very low (S3 storage is cheap, no always-on compute needed) | 💲 Higher due to Pinot’s real-time node and indexing overhead | 💲 High (RDS storage and compute can get expensive) |
+| **Compute Costs** | 💲 Cost-efficient (serverless querying with DuckDB, Trino) | 💲 Higher due to indexing, real-time nodes | 💲 High (requires a powerful RDS instance for heavy queries) |
+| **Window Aggregates** | ✅ Can be handled with Trino SQL/DuckDB efficiently | ✅ Native support for window functions with low-latency results | ⚠️ Limited performance, especially for large datasets |
+| **Concurrency** | 🚀 High, scales with compute resources | 🚀 Very high, designed for concurrent queries | ⚠️ Limited by RDS compute and connection pool |
+| **Best For** | **Batch analytics, cost-effective querying on large historical data** | **Real-time analytics with low-latency queries** | **Small-scale aggregated views with transactional integrity** |
+
+### **Final Recommendation**
+- **Best Choice:** **Parquet in S3 + Apache Pinot** if you need **real-time analytics with window aggregations**.
+- **Cost-effective Alternative:** **Parquet in S3 + Trino/DuckDB** if you can tolerate batch query refreshes.
+- **Not Recommended:** **Materialized Views in RDS** for large-scale window aggregations due to performance constraints.
+
+Would you like guidance on setting up ingestion pipelines for any of these options? 🚀
