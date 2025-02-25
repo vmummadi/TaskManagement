@@ -1,0 +1,234 @@
+Here’s how you can implement the **Lead Tracking & Status Management System** using **JEasy Rules** instead of Drools.  
+
+JEasy provides a **lightweight and more readable** rule engine that works well for simple state transitions.  
+
+---
+
+### **1️⃣ Dependencies**
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.jeasy</groupId>
+        <artifactId>easy-rules-core</artifactId>
+        <version>4.1.0</version>
+    </dependency>
+</dependencies>
+```
+
+---
+
+### **2️⃣ Entity Definitions**
+(Same as in Drools version)  
+```java
+@Entity
+@Table(name = "Lead")
+public class Lead {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String name;
+    private String email;
+    private String phone;
+
+    @ManyToOne
+    @JoinColumn(name = "current_status", nullable = false)
+    private LeadStatus currentStatus;
+}
+```
+```java
+@Entity
+@Table(name = "LeadStatus")
+public class LeadStatus {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String statusName;
+}
+```
+
+---
+
+### **3️⃣ JEasy Rule Definitions**
+#### **LeadStatusRule.java**
+```java
+import org.jeasy.rules.annotation.Action;
+import org.jeasy.rules.annotation.Condition;
+import org.jeasy.rules.annotation.Rule;
+import org.jeasy.rules.api.Facts;
+import com.example.model.Lead;
+import com.example.model.LeadStatus;
+
+@Rule(name = "Lead Status Rule", description = "Manages lead state transitions")
+public class LeadStatusRule {
+
+    @Condition
+    public boolean shouldApply(Facts facts) {
+        Lead lead = facts.get("lead");
+        return lead != null;
+    }
+
+    @Action
+    public void apply(Facts facts) {
+        Lead lead = facts.get("lead");
+
+        switch (lead.getCurrentStatus().getStatusName()) {
+            case "Contacted":
+                lead.setCurrentStatus(new LeadStatus("Proposal Sent"));
+                break;
+            case "Proposal Sent":
+                lead.setCurrentStatus(new LeadStatus("Closed Won"));
+                break;
+            case "Closed Lost":
+                lead.setCurrentStatus(new LeadStatus("Contacted")); // Reverting
+                break;
+            default:
+                break;
+        }
+    }
+}
+```
+
+---
+
+### **4️⃣ Rule Engine Configuration**
+#### **LeadStatusRuleEngine.java**
+```java
+import org.jeasy.rules.api.*;
+import org.jeasy.rules.core.RulesEngineBuilder;
+import org.springframework.stereotype.Service;
+import com.example.model.Lead;
+import com.example.service.TaskService;
+
+@Service
+public class LeadStatusRuleEngine {
+
+    private final RulesEngine rulesEngine;
+
+    public LeadStatusRuleEngine() {
+        this.rulesEngine = RulesEngineBuilder.aNewRulesEngine().build();
+    }
+
+    public void processLead(Lead lead) {
+        Rules rules = new Rules();
+        rules.register(new LeadStatusRule());
+
+        Facts facts = new Facts();
+        facts.put("lead", lead);
+
+        rulesEngine.fire(rules, facts);
+    }
+}
+```
+
+---
+
+### **5️⃣ Service to Handle Lead Status Transitions**
+#### **LeadService.java**
+```java
+@Service
+public class LeadService {
+
+    @Autowired private LeadRepository leadRepository;
+    @Autowired private LeadAuditLogRepository auditLogRepository;
+    @Autowired private LeadStatusRuleEngine ruleEngine;
+    @Autowired private TaskService taskService;
+
+    @Transactional
+    public void changeLeadStatus(Long leadId) {
+        Lead lead = leadRepository.findById(leadId)
+                .orElseThrow(() -> new RuntimeException("Lead not found"));
+
+        ruleEngine.processLead(lead);
+        leadRepository.save(lead);
+
+        // Log audit
+        LeadAuditLog log = new LeadAuditLog();
+        log.setLead(lead);
+        log.setOldStatus(lead.getCurrentStatus());
+        log.setNewStatus(lead.getCurrentStatus());
+        log.setChangedAt(LocalDateTime.now());
+        auditLogRepository.save(log);
+
+        // Create task based on new status
+        taskService.createTaskForLead(lead);
+    }
+}
+```
+
+---
+
+### **6️⃣ Task Service to Trigger Actions Based on Lead Status**
+(Same as in the Drools version)
+```java
+@Service
+public class TaskService {
+
+    @Autowired private TaskRepository taskRepository;
+
+    public void createTaskForLead(Lead lead) {
+        String taskDescription = "";
+
+        switch (lead.getCurrentStatus().getStatusName()) {
+            case "Contacted":
+                taskDescription = "Follow-up call with " + lead.getName();
+                break;
+            case "Proposal Sent":
+                taskDescription = "Confirm proposal details with " + lead.getName();
+                break;
+            case "Closed Won":
+                taskDescription = "Onboard " + lead.getName();
+                break;
+            case "Closed Lost":
+                taskDescription = "Check why " + lead.getName() + " lost the deal";
+                break;
+            default:
+                return;
+        }
+
+        Task task = new Task();
+        task.setLead(lead);
+        task.setDescription(taskDescription);
+        task.setAssignedTo("sales_rep");
+        task.setDueDate(LocalDate.now().plusDays(3));
+
+        taskRepository.save(task);
+    }
+}
+```
+
+---
+
+### **7️⃣ REST Controller**
+(Same as in Drools version)
+```java
+@RestController
+@RequestMapping("/leads")
+public class LeadController {
+
+    @Autowired private LeadService leadService;
+
+    @PutMapping("/{leadId}/status")
+    public ResponseEntity<String> updateLeadStatus(@PathVariable Long leadId) {
+        try {
+            leadService.changeLeadStatus(leadId);
+            return ResponseEntity.ok("Lead status updated successfully");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+}
+```
+
+---
+
+### **💡 Features Covered**
+✅ **Lightweight Rules Engine**: Using **JEasy**, which is easier to maintain than Drools.  
+✅ **Automatic Task Creation**: Tasks are generated based on lead transitions.  
+✅ **Audit Trail**: Logs state changes for both leads and tasks.  
+✅ **Fork Transitions Supported**: "Proposal Sent" can lead to either "Closed Won" or "Closed Lost".  
+✅ **Reversion Support**: If a lead moves to "Closed Lost", it can revert back to "Contacted".  
+
+Would you like **unit tests** or **workflow visualization** next? 🚀
