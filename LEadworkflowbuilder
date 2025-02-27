@@ -1,0 +1,158 @@
+import React, { useState, useCallback } from "react";
+import ReactFlow, { MiniMap, Controls, Background, useNodesState, useEdgesState } from 'reactflow';
+import 'reactflow/dist/style.css';
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Trash } from "lucide-react";
+
+const LeadWorkflowBuilder = () => {
+  const [statuses, setStatuses] = useState([
+    { id: 1, name: "New Lead" },
+    { id: 2, name: "Contacted" },
+  ]);
+  const [transitions, setTransitions] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges] = useEdgesState([]);
+
+  const addStatus = () => {
+    const newStatus = { id: statuses.length + 1, name: "" };
+    setStatuses([...statuses, newStatus]);
+  };
+
+  const updateStatus = (id, name) => {
+    setStatuses(statuses.map((s) => (s.id === id ? { ...s, name } : s)));
+  };
+
+  const deleteStatus = (id) => {
+    setStatuses(statuses.filter((s) => s.id !== id));
+    setTransitions(transitions.filter((t) => t.from !== id && t.to !== id));
+    setTasks(tasks.filter((task) => task.statusId !== id));
+  };
+
+  const addTransition = () => {
+    setTransitions([...transitions, { from: "", to: "" }]);
+  };
+
+  const updateTransition = (index, field, value) => {
+    const updatedTransitions = [...transitions];
+    updatedTransitions[index][field] = value;
+    setTransitions(updatedTransitions);
+  };
+
+  const deleteTransition = (index) => {
+    setTransitions(transitions.filter((_, i) => i !== index));
+  };
+
+  const addTask = () => {
+    setTasks([...tasks, { statusId: "", description: "" }]);
+  };
+
+  const updateTask = (index, field, value) => {
+    const updatedTasks = [...tasks];
+    updatedTasks[index][field] = value;
+    setTasks(updatedTasks);
+  };
+
+  const buildGraph = () => {
+    const newNodes = statuses.map((status, index) => ({
+      id: status.id.toString(),
+      data: { label: status.name },
+      position: { x: 100 + index * 150, y: 100 },
+      draggable: true,
+    }));
+
+    const newEdges = transitions.map((transition, index) => ({
+      id: `e${index}`,
+      source: transition.from.toString(),
+      target: transition.to.toString(),
+      animated: true,
+    }));
+
+    setNodes(newNodes);
+    setEdges(newEdges);
+  };
+
+  return (
+    <div className="p-6 space-y-4">
+      <h2 className="text-xl font-bold">Lead Workflow Builder</h2>
+      
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold">Lead Statuses</h3>
+        {statuses.map((status) => (
+          <Card key={status.id} className="p-2 flex items-center gap-2">
+            <Input
+              value={status.name}
+              onChange={(e) => updateStatus(status.id, e.target.value)}
+              placeholder="Enter Status Name"
+            />
+            <Button variant="destructive" onClick={() => deleteStatus(status.id)}>
+              <Trash size={16} />
+            </Button>
+          </Card>
+        ))}
+        <Button onClick={addStatus}><Plus size={16} /> Add Status</Button>
+      </div>
+      
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold">Transitions</h3>
+        {transitions.map((transition, index) => (
+          <Card key={index} className="p-2 flex items-center gap-2">
+            <Select
+              value={transition.from}
+              onValueChange={(value) => updateTransition(index, "from", value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select From" />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.map((s) => (
+                  <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            →
+            <Select
+              value={transition.to}
+              onValueChange={(value) => updateTransition(index, "to", value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select To" />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.map((s) => (
+                  <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="destructive" onClick={() => deleteTransition(index)}>
+              <Trash size={16} />
+            </Button>
+          </Card>
+        ))}
+        <Button onClick={addTransition}><Plus size={16} /> Add Transition</Button>
+      </div>
+      
+      <Button onClick={buildGraph}>Build Graph</Button>
+      
+      <div className="h-96 border rounded-md overflow-hidden mt-4">
+        <ReactFlow 
+          nodes={nodes} 
+          edges={edges} 
+          onNodesChange={onNodesChange} 
+          onEdgesChange={setEdges} 
+          fitView 
+          style={{ width: '100%', height: '100%' }}
+        >
+          <MiniMap />
+          <Controls />
+          <Background />
+        </ReactFlow>
+      </div>
+    </div>
+  );
+};
+
+export default LeadWorkflowBuilder;
