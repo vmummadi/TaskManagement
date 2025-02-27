@@ -1,0 +1,80 @@
+Here's an exhaustive lead management workflow that outlines how a lead transitions between statuses based on specific task actions.
+
+Each status includes:
+
+Required Task Actions (must be completed before transitioning)
+Possible Next Statuses (based on task outcomes)
+🔹 Comprehensive Lead Workflow
+1️⃣ Status: New Lead
+Task Actions (Required to Transition)
+✅ Call the lead within 1 hour
+✅ Send an introductory email
+✅ Log initial contact attempt in CRM
+Possible Next Statuses
+➝ Contacted (If lead answers or responds to email)
+➝ Unresponsive (If no response after X attempts)
+2️⃣ Status: Contacted
+Task Actions (Required to Transition)
+✅ Qualify the lead (Budget, Need, Timeline)
+✅ Record notes on conversation outcome
+Possible Next Statuses
+➝ Interested (If the lead shows interest)
+➝ Not Interested (If lead explicitly declines)
+➝ Follow-up Scheduled (If lead asks to reconnect later)
+3️⃣ Status: Interested
+Task Actions (Required to Transition)
+✅ Schedule a demo/test drive/meeting
+✅ Send relevant product/pricing details
+✅ Confirm the lead's decision-making timeline
+Possible Next Statuses
+➝ Negotiation (If lead wants to discuss terms)
+➝ Proposal Sent (If a formal quote is provided)
+➝ Lost Lead (If lead stops responding after interest)
+4️⃣ Status: Follow-up Scheduled
+Task Actions (Required to Transition)
+✅ Set a reminder to follow up
+✅ Attempt contact on the scheduled date
+✅ Record outcome of follow-up
+Possible Next Statuses
+➝ Interested (If the lead engages positively)
+➝ Not Interested (If lead declines after follow-up)
+➝ Unresponsive (If lead doesn't respond after multiple attempts)
+5️⃣ Status: Unresponsive
+Task Actions (Required to Transition)
+✅ Attempt contact at least 3 times (phone/email/text)
+✅ Send a final follow-up email/message
+✅ Log no-response status in CRM
+Possible Next Statuses
+➝ Lost Lead (If no response after X days)
+➝ Re-Engaged (If lead eventually responds)
+6️⃣ Status: Proposal Sent
+Task Actions (Required to Transition)
+✅ Send a detailed pricing proposal
+✅ Follow up to confirm receipt & answer questions
+Possible Next Statuses
+➝ Negotiation (If lead wants modifications)
+➝ Closed - Won (If lead accepts and signs deal)
+➝ Lost Lead (If lead declines or stops responding)
+7️⃣ Status: Negotiation
+Task Actions (Required to Transition)
+✅ Discuss pricing/terms with the lead
+✅ Obtain approvals (if required for discounts)
+✅ Send revised proposal/contract
+Possible Next Statuses
+➝ Proposal Sent (If a revised proposal is needed)
+➝ Closed - Won (If lead agrees to terms)
+➝ Lost Lead (If negotiation fails)
+8️⃣ Status: Closed - Won
+Task Actions (Required to Transition)
+✅ Process payment & finalize paperwork
+✅ Mark lead as a customer in CRM
+✅ Hand over to post-sales/customer success team
+Possible Next Statuses
+➝ Onboarding (If next steps include setup/training)
+➝ Referral Requested (If lead is a potential reference)
+9️⃣ Status: Closed - Lost
+Task Actions (Optional, but recommended)
+✅ Record reason for lost lead (e.g., price, competitor, budget)
+✅ Send a polite exit message or offer a future follow-up
+Possible Next Statuses
+➝ Re-Engaged (If lead comes back later)
