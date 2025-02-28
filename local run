@@ -1,0 +1,76 @@
+Set Up a React Project
+If you already have a React app, skip this step.
+Otherwise, create a new React project:
+sh
+Copy
+Edit
+npx create-react-app lead-workflow-builder --template cra-template
+cd lead-workflow-builder
+3️⃣ Install Required Dependencies
+Inside your project directory, install the necessary libraries:
+
+sh
+Copy
+Edit
+npm install reactflow lucide-react @radix-ui/react-select
+4️⃣ Replace Code in src/LeadWorkflowBuilder.js
+Create a new file LeadWorkflowBuilder.js inside src/
+Copy and paste the updated code that I will provide.
+5️⃣ Use the Component in App.js
+Replace the contents of src/App.js with:
+
+jsx
+Copy
+Edit
+import React from "react";
+import LeadWorkflowBuilder from "./LeadWorkflowBuilder";
+
+function App() {
+  return (
+    <div className="App">
+      <LeadWorkflowBuilder />
+    </div>
+  );
+}
+
+export default App;
+6️⃣ Start the Development Server
+sh
+Copy
+Edit
+npm start
+Your app should now be running at http://localhost:3000.
+
+
+
+
+
+
+
+
+How to run this locally:
+Ensure you have Node.js installed (preferably v18+).
+Create a new React project if not already done:
+sh
+Copy
+Edit
+npx create-react-app my-app --template typescript
+cd my-app
+Install required dependencies:
+sh
+Copy
+Edit
+npm install reactflow lucide-react @radix-ui/react-select
+Replace App.tsx (or an appropriate component file) with the updated code.
+Start the development server:
+sh
+Copy
+Edit
+npm start
+
+
+
+
+
+
+
