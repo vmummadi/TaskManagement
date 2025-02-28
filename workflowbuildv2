@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import ReactFlow, { Handle, Position } from "reactflow";
+import ReactFlow, { Handle, Position, Controls, Background, useNodesState, useEdgesState } from "reactflow";
 import "reactflow/dist/style.css";
 import { X, Plus } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
@@ -8,6 +8,8 @@ const LeadWorkflowBuilder = () => {
   const [leadStatuses, setLeadStatuses] = useState([]);
   const [transitions, setTransitions] = useState([]);
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   useEffect(() => {
     setLeadStatuses([
@@ -58,7 +60,6 @@ const LeadWorkflowBuilder = () => {
   };
 
   const addTransition = (from, to) => {
-    if (!from || !to) return;
     const newTransition = { id: uuidv4(), from, to, tasks: getTasksForStatus(from) };
     setTransitions([...transitions, newTransition]);
   };
@@ -69,13 +70,15 @@ const LeadWorkflowBuilder = () => {
   };
 
   const buildGraph = () => {
-    const nodes = leadStatuses.map((status, index) => ({
+    const nodeSpacing = 250;
+    const newNodes = leadStatuses.map((status, index) => ({
       id: status.id,
       data: { label: `${status.name}\n${status.tasks.map((task) => task.name).join(", ")}` },
-      position: { x: 200 * index, y: 100 },
+      position: { x: 100, y: index * nodeSpacing },
+      draggable: true,
     }));
 
-    const edges = transitions.map((transition) => ({
+    const newEdges = transitions.map((transition) => ({
       id: transition.id,
       source: transition.from,
       target: transition.to,
@@ -83,8 +86,9 @@ const LeadWorkflowBuilder = () => {
       animated: true,
     }));
 
-    console.log("Graph Data:", { nodes, edges });
-    setGraphData({ nodes, edges });
+    console.log("Graph Data:", { nodes: newNodes, edges: newEdges });
+    setNodes(newNodes);
+    setEdges(newEdges);
   };
 
   return (
@@ -121,16 +125,16 @@ const LeadWorkflowBuilder = () => {
         </div>
       ))}
       <button onClick={() => addTransition("1", "2")} className="bg-green-500 text-white px-3 py-2 rounded mt-4 flex items-center">
-        <Plus className="mr-2" /> Add Transition (New → In Progress)
-      </button>
-      <button onClick={() => addTransition("2", "3")} className="bg-green-500 text-white px-3 py-2 rounded mt-4 flex items-center">
-        <Plus className="mr-2" /> Add Transition (In Progress → Closed)
+        <Plus className="mr-2" /> Add Transition
       </button>
       <button onClick={buildGraph} className="bg-purple-500 text-white px-3 py-2 rounded mt-4 flex items-center">
         Build Graph
       </button>
-      <div style={{ height: 500, width: "100%", border: "1px solid black", marginTop: 20 }}>
-        <ReactFlow nodes={graphData.nodes} edges={graphData.edges} fitView />
+      <div style={{ height: 500, width: "100%" }}>
+        <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} fitView>
+          <Controls />
+          <Background color="#aaa" gap={16} />
+        </ReactFlow>
       </div>
     </div>
   );
