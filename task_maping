@@ -1,0 +1,208 @@
+You're absolutely right! The **current DB design does not explicitly define which tasks need to be created for a particular Lead Status**, especially considering that **each dealer can have a bespoke workflow**.  
+
+### **Solution: Define Task Templates per Lead Status and Dealer**  
+We need a **Task Template** table that links **Lead Status**, **Dealers**, and **Tasks** together.  
+
+---
+
+## **🔹 Updated DB Design**
+### **New Tables Added**
+1. **`task_template`** - Defines tasks that need to be created when a lead enters a specific status.  
+2. **`dealer_workflow`** - Tracks each dealer's custom workflow with lead status transitions.  
+3. **`lead_status_transition`** - Defines the valid lead status transitions and when they should trigger.
+
+---
+
+### **🚀 Updated Schema**
+```sql
+-- 🏢 Table: dealer
+CREATE TABLE dealer (
+    dealer_id UUID PRIMARY KEY,
+    dealer_name VARCHAR(255) NOT NULL
+);
+
+-- 🚗 Table: lead
+CREATE TABLE lead (
+    lead_id UUID PRIMARY KEY,
+    dealer_id UUID NOT NULL,
+    customer_name VARCHAR(255) NOT NULL,
+    current_status_id UUID NOT NULL,  -- Tracks current lead status
+    FOREIGN KEY (dealer_id) REFERENCES dealer(dealer_id),
+    FOREIGN KEY (current_status_id) REFERENCES lead_status(lead_status_id)
+);
+
+-- 🛠 Table: lead_status (Each status in the workflow)
+CREATE TABLE lead_status (
+    lead_status_id UUID PRIMARY KEY,
+    dealer_id UUID NOT NULL,
+    status_name VARCHAR(255) NOT NULL,
+    FOREIGN KEY (dealer_id) REFERENCES dealer(dealer_id)
+);
+
+-- 🔄 Table: lead_status_transition (Defines allowed transitions)
+CREATE TABLE lead_status_transition (
+    transition_id UUID PRIMARY KEY,
+    dealer_id UUID NOT NULL,
+    from_status_id UUID NOT NULL,
+    to_status_id UUID NOT NULL,
+    trigger_condition VARCHAR(255), -- Defines what triggers this transition (e.g., "Task Completion"),
+    FOREIGN KEY (dealer_id) REFERENCES dealer(dealer_id),
+    FOREIGN KEY (from_status_id) REFERENCES lead_status(lead_status_id),
+    FOREIGN KEY (to_status_id) REFERENCES lead_status(lead_status_id)
+);
+
+-- 📋 Table: task_template (Defines what tasks to create per lead status)
+CREATE TABLE task_template (
+    task_template_id UUID PRIMARY KEY,
+    dealer_id UUID NOT NULL,
+    lead_status_id UUID NOT NULL,
+    task_name VARCHAR(255) NOT NULL,
+    task_description TEXT,
+    due_days INT NOT NULL, -- e.g., Task should be completed in X days
+    auto_reminder BOOLEAN DEFAULT FALSE, -- Whether automatic reminders apply
+    reminder_interval INT DEFAULT 0, -- Interval in days
+    FOREIGN KEY (dealer_id) REFERENCES dealer(dealer_id),
+    FOREIGN KEY (lead_status_id) REFERENCES lead_status(lead_status_id)
+);
+
+-- ✅ Table: task (Actual tasks created per lead)
+CREATE TABLE task (
+    task_id UUID PRIMARY KEY,
+    lead_id UUID NOT NULL,
+    task_template_id UUID NOT NULL, -- Links to template
+    status VARCHAR(50) CHECK (status IN ('Pending', 'In Progress', 'Completed')),
+    due_date TIMESTAMP NOT NULL,
+    last_reminder_sent TIMESTAMP NULL,
+    reminder_count INT DEFAULT 0,
+    FOREIGN KEY (lead_id) REFERENCES lead(lead_id),
+    FOREIGN KEY (task_template_id) REFERENCES task_template(task_template_id)
+);
+```
+
+---
+
+## **🔹 How it Works**
+### ✅ **Each Dealer Defines Their Own Workflow**
+- **`lead_status`** holds the statuses for each dealer.  
+- **`lead_status_transition`** defines which statuses transition to others.  
+
+### ✅ **Tasks Are Created Dynamically for Each Lead Status**
+- **`task_template`** defines tasks that must be created when a lead enters a status.  
+- When a lead moves to a new status, **tasks are created dynamically** from `task_template`.
+
+### ✅ **Example Flow**
+1. **Dealer A** has the following workflow:  
+   - `New Lead → Follow-Up → Negotiation → Closed`
+2. When a lead enters **"Follow-Up"**, the system checks `task_template`:
+   - Task 1: "Call the customer" (Due in 1 day, Auto reminder ON)  
+   - Task 2: "Send quote" (Due in 2 days, No reminder)  
+3. The system **automatically creates these tasks** for the lead.
+
+---
+
+## **🔹 How to Implement Task Creation in Java?**
+We need to automatically create tasks when a lead transitions to a new status.
+
+### **Service to Create Tasks (`LeadService.java`)**
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class LeadService {
+
+    @Autowired
+    private TaskTemplateRepository taskTemplateRepository;
+
+    @Autowired
+    private TaskRepository taskRepository;
+
+    public void updateLeadStatus(UUID leadId, UUID newStatusId) {
+        // Fetch task templates for the new lead status
+        List<TaskTemplate> templates = taskTemplateRepository.findByLeadStatusId(newStatusId);
+
+        // Create tasks based on templates
+        for (TaskTemplate template : templates) {
+            Task task = new Task();
+            task.setLeadId(leadId);
+            task.setTaskTemplateId(template.getTaskTemplateId());
+            task.setStatus("Pending");
+            task.setDueDate(LocalDateTime.now().plusDays(template.getDueDays()));
+            taskRepository.save(task);
+        }
+    }
+}
+```
+
+---
+
+## **🔹 How to Trigger Status Transition & Task Creation via API?**
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/leads")
+public class LeadController {
+
+    @Autowired
+    private LeadService leadService;
+
+    @PostMapping("/{leadId}/status/{newStatusId}")
+    public String updateLeadStatus(@PathVariable UUID leadId, @PathVariable UUID newStatusId) {
+        leadService.updateLeadStatus(leadId, newStatusId);
+        return "Lead status updated and tasks created!";
+    }
+}
+```
+
+---
+
+## **🔹 Automating Task Reminders**
+```java
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class TaskReminderService {
+
+    @Autowired
+    private TaskRepository taskRepository;
+
+    @Scheduled(cron = "0 0 9 * * ?")  // Runs daily at 9 AM
+    public void sendReminders() {
+        List<Task> overdueTasks = taskRepository.findOverdueTasks();
+
+        for (Task task : overdueTasks) {
+            if (task.shouldSendReminder()) {
+                sendEmail(task);
+                task.setLastReminderSent(LocalDateTime.now());
+                task.setReminderCount(task.getReminderCount() + 1);
+                taskRepository.save(task);
+            }
+        }
+    }
+
+    private void sendEmail(Task task) {
+        // Logic to send email reminder
+    }
+}
+```
+
+---
+
+## **🔹 Summary**
+✔ **`task_template`** links lead statuses to tasks.  
+✔ **Tasks are dynamically created when a lead transitions statuses.**  
+✔ **Dealers have full control over workflows.**  
+✔ **Reminders are sent for overdue tasks.**  
+✔ **Web API allows manual lead status updates & task creation.**  
+
+🚀 This approach **ensures flexibility for different dealers while automating lead management workflows**!
