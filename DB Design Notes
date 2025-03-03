@@ -1,0 +1,129 @@
+Here’s a detailed **relational database design** for your **Lead Management System** that meets your requirements.  
+
+---
+## **Database Schema Design**
+### **Entities and Relationships**
+- A **Lead** goes through multiple **Lead Statuses** in a defined workflow.
+- Each **Lead Status** has multiple **Tasks** associated with it.
+- Completing one or more **Tasks** can trigger a **Transition** to the next **Lead Status**.
+- Tasks have **rules**, such as automated reminders for overdue tasks.
+
+---
+
+### **Tables and Attributes**
+#### **1. Leads**
+Tracks customers (potential buyers) who are interested in purchasing a car.
+
+| Column Name     | Data Type        | Description |
+|----------------|-----------------|-------------|
+| `lead_id`      | UUID (PK)        | Unique identifier for the lead |
+| `customer_name` | VARCHAR(255)     | Name of the customer |
+| `email`        | VARCHAR(255)     | Contact email |
+| `phone`        | VARCHAR(20)      | Contact phone number |
+| `car_model`    | VARCHAR(100)     | Car model customer is interested in |
+| `created_at`   | TIMESTAMP        | When the lead was created |
+| `updated_at`   | TIMESTAMP        | When the lead was last updated |
+| `current_status_id` | UUID (FK)    | Foreign key to `lead_statuses` (current status of the lead) |
+
+---
+
+#### **2. Lead Statuses**
+Defines different statuses that a lead can be in (e.g., "New," "In Progress," "Closed").
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `status_id`    | UUID (PK)    | Unique identifier for the lead status |
+| `status_name`  | VARCHAR(100) | Name of the status (e.g., "New", "Closed") |
+| `created_at`   | TIMESTAMP    | Timestamp of status creation |
+
+---
+
+#### **3. Tasks**
+Defines tasks assigned to a lead when it is in a particular status.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `task_id`      | UUID (PK)    | Unique identifier for the task |
+| `status_id`    | UUID (FK)    | Foreign key to `lead_statuses` (status to which task belongs) |
+| `task_name`    | VARCHAR(255) | Description of the task |
+| `due_days`     | INT          | Number of days before task is due |
+| `reminder_frequency` | INT    | Frequency (in hours) for reminders if overdue |
+| `created_at`   | TIMESTAMP    | Timestamp of task creation |
+
+---
+
+#### **4. Lead Tasks (Tracking Lead-Specific Tasks)**
+Tracks **which tasks are assigned** to a specific lead and their completion status.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `lead_task_id` | UUID (PK)    | Unique identifier for lead-task relationship |
+| `lead_id`      | UUID (FK)    | Foreign key to `leads` (which lead this task is for) |
+| `task_id`      | UUID (FK)    | Foreign key to `tasks` (the associated task) |
+| `status`       | ENUM('Pending', 'Completed') | Current status of the task |
+| `due_date`     | TIMESTAMP    | Calculated due date based on `due_days` from `tasks` table |
+| `completed_at` | TIMESTAMP    | Timestamp when task was completed |
+
+---
+
+#### **5. Transitions**
+Defines the possible transitions between lead statuses.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `transition_id` | UUID (PK)   | Unique identifier for the transition |
+| `from_status_id` | UUID (FK)  | Foreign key to `lead_statuses` (current status) |
+| `to_status_id` | UUID (FK)    | Foreign key to `lead_statuses` (next status) |
+| `required_task_id` | UUID (FK) | Task(s) required to complete before transitioning |
+
+---
+
+#### **6. Task Rules**
+Defines additional rules on tasks such as **automatic reminders** and **escalations**.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `rule_id`      | UUID (PK)    | Unique identifier for the rule |
+| `task_id`      | UUID (FK)    | Foreign key to `tasks` |
+| `rule_type`    | ENUM('Reminder', 'Escalation') | Type of rule |
+| `time_trigger` | INT          | Time (in hours) after which the rule applies |
+| `action`       | VARCHAR(255) | Action to take (e.g., "Send Reminder Email") |
+
+---
+
+### **Relationships and Business Logic**
+1. **Lead Status & Tasks (One-to-Many)**: Each lead status has multiple tasks.
+2. **Leads & Lead Tasks (One-to-Many)**: Each lead has multiple tasks assigned based on the status.
+3. **Lead Tasks & Transitions**: Completing specific tasks triggers a status transition.
+4. **Task Rules & Automated Actions**: Automatic reminders/escalations apply based on task completion time.
+
+---
+
+### **Example Use Case**
+#### **Scenario**
+1. **Lead Created:**  
+   - Customer John is interested in a Tesla Model 3.
+   - A new lead is created with `status = "New"`.
+
+2. **Assigned Tasks for "New" Status:**  
+   - "Send Email" (due in 2 days, with reminders every 24 hours).  
+   - "Follow-up Call" (due in 3 days).  
+
+3. **Task Completion & Transition:**  
+   - "Send Email" is marked **Completed**.
+   - "Follow-up Call" is still **Pending**.
+   - Once all required tasks are **Completed**, the system automatically **transitions lead to "In Progress"**.
+
+4. **New Tasks for "In Progress" Status:**  
+   - "Proposal Sent" task is assigned.
+   - If "Proposal Sent" is not completed within 5 days, the system **sends reminders every 24 hours**.
+
+---
+
+### **Next Steps**
+- Implement this schema in **PostgreSQL/MySQL**.
+- Create **stored procedures** for automatic task assignments.
+- Implement a **job scheduler** (e.g., AWS Lambda, CRON jobs) for reminders.
+- Use **GraphQL/REST API** for fetching leads and tasks dynamically.
+
+This database design **ensures scalability**, **workflow automation**, and **clear task transitions** for the car dealership. Let me know if you need modifications! 🚗🔧
