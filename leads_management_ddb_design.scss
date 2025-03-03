@@ -1,0 +1,38 @@
+[ Leads ]  
+    lead_id (PK) 🔗──► (FK) current_status_id → [ Lead Statuses ]  
+    ├── customer_name  
+    ├── email  
+    ├── phone  
+    ├── car_model  
+    ├── created_at  
+    ├── updated_at  
+
+[ Lead Statuses ]  
+    status_id (PK)  
+    ├── status_name  
+    ├── created_at  
+
+[ Tasks ]  
+    task_id (PK) 🔗──► (FK) status_id → [ Lead Statuses ]  
+    ├── task_name  
+    ├── due_days  
+    ├── reminder_frequency  
+    ├── created_at  
+
+[ Lead Tasks ]  
+    lead_task_id (PK) 🔗──► (FK) lead_id → [ Leads ]  
+    lead_task_id (PK) 🔗──► (FK) task_id → [ Tasks ]  
+    ├── status  
+    ├── due_date  
+    ├── completed_at  
+
+[ Transitions ]  
+    transition_id (PK) 🔗──► (FK) from_status_id → [ Lead Statuses ]  
+    transition_id (PK) 🔗──► (FK) to_status_id → [ Lead Statuses ]  
+    transition_id (PK) 🔗──► (FK) required_task_id → [ Tasks ]  
+
+[ Task Rules ]  
+    rule_id (PK) 🔗──► (FK) task_id → [ Tasks ]  
+    ├── rule_type  
+    ├── time_trigger  
+    ├── action  
