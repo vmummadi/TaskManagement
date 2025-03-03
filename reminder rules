@@ -1,0 +1,172 @@
+
+
+To achieve **dynamic reminder schedules** based on pre-defined scenarios while allowing **dealers to customize configurations**, we need a flexible approach.  
+
+---
+
+## **🔹 Solution Overview**
+1. **Define a `reminder_schedule` table** to store different reminder frequencies.
+2. **Allow dealers to configure reminder schedules dynamically** per task template.
+3. **Implement a job that sends reminders based on the schedule**.
+4. **Ensure reminders do not get re-triggered incorrectly**.
+
+---
+
+## **📌 Database Design Update**
+### **New Table: `reminder_schedule`**
+```sql
+CREATE TABLE reminder_schedule (
+    reminder_schedule_id UUID PRIMARY KEY,
+    dealer_id UUID NOT NULL,
+    schedule_name VARCHAR(255) NOT NULL, -- "Daily First Week, Alternate Next, Weekly After"
+    FOREIGN KEY (dealer_id) REFERENCES dealer(dealer_id)
+);
+```
+
+### **New Table: `reminder_rule`**
+```sql
+CREATE TABLE reminder_rule (
+    rule_id UUID PRIMARY KEY,
+    reminder_schedule_id UUID NOT NULL,
+    task_template_id UUID NOT NULL,
+    start_day INT NOT NULL, -- When this rule starts (e.g., Day 1)
+    end_day INT NOT NULL, -- When this rule ends (e.g., Day 7)
+    interval_days INT NOT NULL, -- Frequency of reminders in days (e.g., 1 for daily, 2 for alternate)
+    FOREIGN KEY (reminder_schedule_id) REFERENCES reminder_schedule(reminder_schedule_id),
+    FOREIGN KEY (task_template_id) REFERENCES task_template(task_template_id)
+);
+```
+
+---
+
+## **🔹 How it Works**
+1. **Dealers define a `reminder_schedule`** with custom configurations.
+2. **Each `reminder_rule` links tasks to reminder intervals** dynamically.
+3. **The system checks which rule applies based on how long the task has been open**.
+4. **A background job runs daily to determine if a task requires a reminder**.
+
+---
+
+## **📌 Example Dealer Configuration**
+| Dealer | Schedule Name | Task Name | Start Day | End Day | Interval (days) |
+|--------|--------------|-----------|-----------|---------|-----------------|
+| Dealer A | Default Schedule | Call Customer | 1 | 7 | 1 (Daily) |
+| Dealer A | Default Schedule | Call Customer | 8 | 14 | 2 (Alternate) |
+| Dealer A | Default Schedule | Call Customer | 15 | 42 | 7 (Weekly) |
+| Dealer A | Default Schedule | Call Customer | 43 | 100 | 30 (Monthly) |
+
+---
+
+## **🔹 Java Implementation**
+
+### **Step 1: Define `ReminderRule` Entity**
+```java
+@Entity
+@Table(name = "reminder_rule")
+public class ReminderRule {
+    @Id
+    @GeneratedValue
+    private UUID ruleId;
+
+    @ManyToOne
+    @JoinColumn(name = "reminder_schedule_id", nullable = false)
+    private ReminderSchedule reminderSchedule;
+
+    @ManyToOne
+    @JoinColumn(name = "task_template_id", nullable = false)
+    private TaskTemplate taskTemplate;
+
+    private int startDay;
+    private int endDay;
+    private int intervalDays;
+}
+```
+
+---
+
+### **Step 2: Create a Background Job for Reminders**
+```java
+@Service
+public class TaskReminderService {
+
+    @Autowired
+    private TaskRepository taskRepository;
+
+    @Autowired
+    private ReminderRuleRepository reminderRuleRepository;
+
+    @Scheduled(cron = "0 0 9 * * ?")  // Runs daily at 9 AM
+    public void processReminders() {
+        List<Task> pendingTasks = taskRepository.findPendingTasks();
+
+        for (Task task : pendingTasks) {
+            long daysSinceCreated = ChronoUnit.DAYS.between(task.getCreatedAt(), LocalDateTime.now());
+
+            // Fetch applicable reminder rule
+            ReminderRule rule = reminderRuleRepository.findApplicableRule(task.getTaskTemplateId(), daysSinceCreated);
+            if (rule == null) {
+                continue; // No rule applies
+            }
+
+            // Ensure reminder is sent only at the correct interval
+            if (task.getLastReminderSent() == null || 
+                ChronoUnit.DAYS.between(task.getLastReminderSent(), LocalDateTime.now()) >= rule.getIntervalDays()) {
+                
+                sendReminder(task);
+                task.setLastReminderSent(LocalDateTime.now());
+                task.incrementReminderCount();
+                taskRepository.save(task);
+            }
+        }
+    }
+
+    private void sendReminder(Task task) {
+        System.out.println("Sending reminder for task: " + task.getTaskId());
+        // Implement Email or SMS notification logic here
+    }
+}
+```
+
+---
+
+### **Step 3: API for Dealers to Configure Reminder Rules**
+```java
+@RestController
+@RequestMapping("/reminders")
+public class ReminderRuleController {
+
+    @Autowired
+    private ReminderRuleRepository reminderRuleRepository;
+
+    @PostMapping("/rule")
+    public ResponseEntity<String> createReminderRule(@RequestBody ReminderRule rule) {
+        reminderRuleRepository.save(rule);
+        return ResponseEntity.ok("Reminder rule added successfully!");
+    }
+}
+```
+
+---
+
+## **🔹 How Dealers Can Customize Reminders**
+1. **Define a `reminder_schedule` for their dealership** (e.g., "Dealer A Default Schedule").
+2. **Add `reminder_rule` entries for different phases** (Daily, Alternate, Weekly, Monthly).
+3. **When a task is overdue, the background job checks rules and sends reminders.**
+
+---
+
+## **🔹 Ensuring Reminders Are Not Re-Sent Too Soon**
+- Each task has `last_reminder_sent` and `reminder_count` to track reminders.
+- The system **checks the interval defined in the rule** before re-sending.
+- This prevents redundant reminders while ensuring timely follow-ups.
+
+---
+
+## **🚀 Summary**
+✔ **Dynamic dealer-defined reminder schedules**  
+✔ **Flexible rules with different reminder frequencies**  
+✔ **Automated scheduled job to check & send reminders**  
+✔ **Ensures reminders are not duplicated**  
+✔ **REST API to configure schedules per dealer**  
+
+**This approach ensures maximum flexibility while automating lead follow-ups efficiently!** 🚀
