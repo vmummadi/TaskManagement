@@ -1,0 +1,127 @@
+Your current schema is focused on **time-based reminders** (e.g., reminders sent at specific intervals like daily, alternate days, etc.). However, if you want to support **other types of triggers** for sending reminders, you need a more **extensible schema**.  
+
+---
+
+## **🔹 Extending the Schema for Other Reminder Triggers**
+Instead of limiting reminders to only time-based triggers, you could introduce **a more generic trigger system**, allowing for **multiple types of conditions** to be configured dynamically.  
+
+### **📌 Key Enhancements**
+1. **Introduce a `reminder_trigger` table** to define different reminder triggers.
+2. **Extend `reminder_rule` to reference different types of triggers**, not just time-based ones.
+3. **Modify the reminder job to check which trigger applies for sending reminders.**
+
+---
+
+## **📌 Database Design Update**
+### **1️⃣ New Table: `reminder_trigger`**
+Defines different types of triggers for reminders.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `trigger_id`   | UUID (PK)    | Unique identifier for the trigger |
+| `dealer_id`    | UUID (FK)    | Foreign key to `dealer` (each dealer can define their own triggers) |
+| `trigger_type` | ENUM ('TIME_BASED', 'NO_RESPONSE', 'CUSTOM_CONDITION') | Defines the type of trigger |
+| `trigger_details` | JSONB      | Stores trigger-specific configurations (e.g., conditions) |
+| `created_at`   | TIMESTAMP    | Timestamp of trigger creation |
+
+---
+
+### **2️⃣ Update: `reminder_rule`**
+Modify `reminder_rule` to link to `reminder_trigger` instead of only `reminder_schedule`.
+
+| Column Name     | Data Type    | Description |
+|----------------|-------------|-------------|
+| `rule_id`      | UUID (PK)    | Unique identifier for the reminder rule |
+| `trigger_id`   | UUID (FK)    | Foreign key to `reminder_trigger` (what condition must be met?) |
+| `task_template_id` | UUID (FK) | Foreign key to `task_template` (which task does this rule apply to?) |
+| `start_day`    | INT          | When this rule starts (for time-based triggers) |
+| `end_day`      | INT          | When this rule ends (for time-based triggers) |
+| `interval_days` | INT         | Frequency of reminders (if applicable) |
+| `created_at`   | TIMESTAMP    | Timestamp of rule creation |
+
+---
+
+## **🔹 How This Enables New Reminder Triggers**
+With this approach, reminders can now be triggered by **various conditions**, such as:
+
+1. **Time-Based Triggers** (same as before)
+   - Every X days, send reminders.
+   
+2. **No Response Triggers**  
+   - If the lead has not responded within Y days, send a reminder.
+   
+3. **Custom Condition Triggers**  
+   - Example: Send a reminder **if the lead viewed a proposal but did not sign it**.  
+
+Since **`reminder_trigger.trigger_details`** is stored as **JSONB**, we can store **custom conditions** dynamically per dealer.
+
+---
+
+## **📌 Example Reminder Trigger Configurations**
+### **1️⃣ Time-Based Reminder (Daily, Alternate Days, Weekly)**
+```json
+{
+    "trigger_type": "TIME_BASED",
+    "interval_days": [1, 2, 7]
+}
+```
+
+### **2️⃣ No Response Reminder (Trigger if No Action in 3 Days)**
+```json
+{
+    "trigger_type": "NO_RESPONSE",
+    "days_without_response": 3
+}
+```
+
+### **3️⃣ Custom Reminder (Trigger if Proposal Viewed but Not Signed)**
+```json
+{
+    "trigger_type": "CUSTOM_CONDITION",
+    "condition": "proposal_viewed AND NOT proposal_signed"
+}
+```
+
+---
+
+## **🔹 Implementation in Java**
+### **Checking Trigger Type in Java Reminder Job**
+```java
+public void processReminders() {
+    List<ReminderRule> pendingReminders = reminderRuleRepository.getPendingReminders();
+
+    for (ReminderRule rule : pendingReminders) {
+        ReminderTrigger trigger = rule.getTrigger();
+
+        switch (trigger.getTriggerType()) {
+            case "TIME_BASED":
+                if (isTimeToSendReminder(rule)) {
+                    sendReminder(rule);
+                }
+                break;
+
+            case "NO_RESPONSE":
+                if (isNoResponseConditionMet(trigger)) {
+                    sendReminder(rule);
+                }
+                break;
+
+            case "CUSTOM_CONDITION":
+                if (isCustomConditionMet(trigger)) {
+                    sendReminder(rule);
+                }
+                break;
+        }
+    }
+}
+```
+
+---
+
+## **🔹 Summary**
+✅ **Supports Time-Based, No Response, and Custom Condition Triggers**  
+✅ **Allows Dealers to Configure Custom Triggers Dynamically**  
+✅ **Stores Conditions in JSONB for Flexibility**  
+✅ **Reminder Job Checks the Appropriate Trigger Type**  
+
+Would you like me to extend this with more advanced filtering logic for processing reminders? 🚀
