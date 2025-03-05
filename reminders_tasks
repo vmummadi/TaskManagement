@@ -1,0 +1,274 @@
+### **Integrating Tasks with Reminder Schedules for Automated Notifications**
+Now that we have:
+1. **Tasks (`task` table)** assigned to a lead status.
+2. **Reminder Schedules (`reminder_schedule` & `reminder_rule`)** defining when reminders should be sent.
+
+We need a **background job** to:
+- Fetch **tasks that are due** or **overdue**.
+- Determine the **reminder frequency** based on **`reminder_rule`**.
+- Send **reminders** accordingly.
+- Ensure a **reminder is not resent if already sent within the expected interval**.
+
+---
+
+## **📌 Updated Schema Integration**
+To enable reminders:
+- The `task` table will **reference** the **reminder_rule** dynamically.
+- The **last reminder timestamp** will be stored in a new table.
+
+### **New Table: `task_reminder_log`**
+```sql
+CREATE TABLE task_reminder_log (
+    log_id UUID PRIMARY KEY,
+    task_id UUID NOT NULL,
+    last_sent TIMESTAMP NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES task(task_id)
+);
+```
+This table **tracks the last time a reminder was sent** to prevent duplicate notifications.
+
+---
+
+## **📌 Java Implementation: Background Job for Reminders**
+The following Java **Spring Boot** implementation:
+- Fetches **due or overdue tasks**.
+- Uses **reminder rules** to check if a reminder should be sent.
+- Logs the last reminder sent to avoid re-triggering.
+
+---
+
+### **1️⃣ Entity Models**
+#### **Task Entity (`Task.java`)**
+```java
+@Entity
+@Table(name = "task")
+public class Task {
+    
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @Column(name = "task_id")
+    private UUID taskId;
+
+    @Column(name = "status_id")
+    private UUID statusId;
+
+    @Column(name = "task_name")
+    private String taskName;
+
+    @Column(name = "due_days")
+    private int dueDays;
+
+    @Column(name = "reminder_frequency")
+    private int reminderFrequency;
+
+    @Column(name = "created_at")
+    private Timestamp createdAt;
+}
+```
+
+#### **Reminder Rule Entity (`ReminderRule.java`)**
+```java
+@Entity
+@Table(name = "reminder_rule")
+public class ReminderRule {
+
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @Column(name = "rule_id")
+    private UUID ruleId;
+
+    @Column(name = "reminder_schedule_id")
+    private UUID reminderScheduleId;
+
+    @Column(name = "task_template_id")
+    private UUID taskTemplateId;
+
+    @Column(name = "start_day")
+    private int startDay;
+
+    @Column(name = "end_day")
+    private int endDay;
+
+    @Column(name = "interval_days")
+    private int intervalDays;
+}
+```
+
+#### **Task Reminder Log (`TaskReminderLog.java`)**
+```java
+@Entity
+@Table(name = "task_reminder_log")
+public class TaskReminderLog {
+
+    @Id
+    @GeneratedValue(generator = "UUID")
+    @Column(name = "log_id")
+    private UUID logId;
+
+    @Column(name = "task_id")
+    private UUID taskId;
+
+    @Column(name = "last_sent")
+    private Timestamp lastSent;
+}
+```
+
+---
+
+### **2️⃣ Repository Layer**
+#### **Task Repository (`TaskRepository.java`)**
+```java
+@Repository
+public interface TaskRepository extends JpaRepository<Task, UUID> {
+    
+    @Query("SELECT t FROM Task t WHERE t.dueDays <= :daysElapsed")
+    List<Task> findDueOrOverdueTasks(@Param("daysElapsed") int daysElapsed);
+}
+```
+
+#### **Reminder Rule Repository (`ReminderRuleRepository.java`)**
+```java
+@Repository
+public interface ReminderRuleRepository extends JpaRepository<ReminderRule, UUID> {
+    
+    @Query("SELECT r FROM ReminderRule r WHERE r.taskTemplateId = :taskTemplateId " +
+           "AND :daysElapsed BETWEEN r.startDay AND r.endDay")
+    Optional<ReminderRule> findApplicableRule(@Param("taskTemplateId") UUID taskTemplateId,
+                                              @Param("daysElapsed") int daysElapsed);
+}
+```
+
+#### **Task Reminder Log Repository (`TaskReminderLogRepository.java`)**
+```java
+@Repository
+public interface TaskReminderLogRepository extends JpaRepository<TaskReminderLog, UUID> {
+
+    @Query("SELECT l FROM TaskReminderLog l WHERE l.taskId = :taskId ORDER BY l.lastSent DESC")
+    Optional<TaskReminderLog> findLastReminderSent(@Param("taskId") UUID taskId);
+}
+```
+
+---
+
+### **3️⃣ Background Job: Send Reminders**
+```java
+@Service
+@Slf4j
+public class ReminderService {
+
+    @Autowired
+    private TaskRepository taskRepository;
+
+    @Autowired
+    private ReminderRuleRepository reminderRuleRepository;
+
+    @Autowired
+    private TaskReminderLogRepository reminderLogRepository;
+
+    @Scheduled(fixedRate = 3600000) // Run every hour
+    public void processReminders() {
+        log.info("Starting Reminder Processing Job...");
+
+        List<Task> tasks = taskRepository.findDueOrOverdueTasks(63); // Fetch tasks within the 63-day window
+        
+        for (Task task : tasks) {
+            int daysElapsed = calculateDaysElapsed(task.getCreatedAt());
+            UUID taskTemplateId = task.getTaskId();
+
+            Optional<ReminderRule> ruleOpt = reminderRuleRepository.findApplicableRule(taskTemplateId, daysElapsed);
+            if (ruleOpt.isPresent()) {
+                ReminderRule rule = ruleOpt.get();
+                processTaskReminder(task, rule);
+            }
+        }
+    }
+
+    private void processTaskReminder(Task task, ReminderRule rule) {
+        Optional<TaskReminderLog> lastReminderOpt = reminderLogRepository.findLastReminderSent(task.getTaskId());
+        Timestamp lastReminderSent = lastReminderOpt.map(TaskReminderLog::getLastSent).orElse(null);
+
+        int reminderInterval = rule.getIntervalDays();
+        if (reminderInterval == 0) reminderInterval = 1; // Default to 1 day if 0
+        
+        if (shouldSendReminder(lastReminderSent, reminderInterval)) {
+            sendReminder(task);
+            logReminderSent(task);
+        }
+    }
+
+    private boolean shouldSendReminder(Timestamp lastSent, int intervalDays) {
+        if (lastSent == null) return true;
+        
+        LocalDateTime lastSentTime = lastSent.toLocalDateTime();
+        LocalDateTime now = LocalDateTime.now();
+        
+        return lastSentTime.plusDays(intervalDays).isBefore(now);
+    }
+
+    private void sendReminder(Task task) {
+        log.info("Sending reminder for Task: " + task.getTaskName());
+        // Send email, SMS, or notification logic here
+    }
+
+    private void logReminderSent(Task task) {
+        TaskReminderLog logEntry = new TaskReminderLog();
+        logEntry.setLogId(UUID.randomUUID());
+        logEntry.setTaskId(task.getTaskId());
+        logEntry.setLastSent(Timestamp.valueOf(LocalDateTime.now()));
+
+        reminderLogRepository.save(logEntry);
+    }
+
+    private int calculateDaysElapsed(Timestamp createdAt) {
+        return (int) ChronoUnit.DAYS.between(createdAt.toLocalDateTime(), LocalDateTime.now());
+    }
+}
+```
+
+---
+
+## **📌 Explanation**
+### **✔️ How This Works**
+1. The **`processReminders()`** method runs every **hour** to check if tasks are **due or overdue**.
+2. It **fetches applicable reminder rules** based on the task type and elapsed days.
+3. It **checks the last reminder timestamp** (if any) from `task_reminder_log`.
+4. If the **next reminder is due**, it sends a **reminder notification** and **logs it**.
+5. It ensures **reminders are sent only at configured intervals**.
+
+---
+
+## **📌 Deployment Considerations**
+### **Trigger API on AWS ECS**
+- If this job runs in an **ECS container**, you can **trigger it via AWS EventBridge** on a cadence.
+- Alternatively, expose an **API endpoint** to manually trigger reminders.
+
+#### **Expose API for Manual Trigger**
+```java
+@RestController
+@RequestMapping("/reminders")
+public class ReminderController {
+
+    @Autowired
+    private ReminderService reminderService;
+
+    @PostMapping("/trigger")
+    public ResponseEntity<String> triggerReminders() {
+        reminderService.processReminders();
+        return ResponseEntity.ok("Reminder Job Triggered");
+    }
+}
+```
+
+### **Trigger on AWS ECS**
+You can create an **EventBridge Rule**:
+- **Schedule Expression**: `rate(1 hour)`
+- Target: **ECS Task Definition** running the reminder job.
+
+---
+
+## **📌 Summary**
+✅ **Automates reminders dynamically based on task type & dealer configurations.**  
+✅ **Ensures reminders are sent at correct intervals, preventing re-triggering.**  
+✅ **Allows manual API trigger and supports AWS ECS scheduled execution.**  
+
+This setup ensures **scalability & maintainability** while keeping the reminders **configurable per dealer**. 🚀
