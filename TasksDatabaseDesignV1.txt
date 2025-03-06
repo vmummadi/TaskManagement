@@ -1,0 +1,173 @@
+You're absolutely right that to support multiple task creations for an event or lead status, **we need a task template system** that defines which tasks should be generated dynamically.
+
+Additionally, we need to extend the schema to **support UI-driven task creation**, **user-defined lead statuses**, **event-to-task mappings**, and **scheduled reminders/notifications**.
+
+---
+
+## **🗂 Extended Database Schema**
+### **New Additions**:
+1. **`task_template`** → Stores predefined task structures for lead statuses & events.
+2. **`lead_status`** → Allows users to define statuses in the UI.
+3. **`event_type`** → Allows users to define external events in the UI.
+4. **`task_schedule`** → Stores schedules/reminders for each task.
+5. **`notification_rule`** → Defines rules for sending notifications.
+
+---
+
+### **1️⃣ `lead_status` (User-Defined Lead Statuses)**
+Users can **create lead statuses** and define **tasks that should be triggered**.
+
+```sql
+CREATE TABLE lead_status (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,  -- Status name (e.g., 'Lead Contacted', 'Negotiation')
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### **2️⃣ `event_type` (User-Defined Events)**
+Users can **define event types** that trigger tasks.
+
+```sql
+CREATE TABLE event_type (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,  -- Event name (e.g., 'Payment Received', 'Support Ticket Opened')
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### **3️⃣ `task_template` (Defines Which Tasks Are Created for Leads & Events)**
+Defines **pre-configured tasks** that should be created **when a lead status or event occurs**.
+
+```sql
+CREATE TABLE task_template (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL CHECK (type IN ('lead', 'event')),  -- Is this for a lead status or an event?
+    related_entity_id UUID NOT NULL,  -- References lead_status(id) OR event_type(id)
+    name TEXT NOT NULL,  -- Task name (e.g., 'Follow-up Call', 'Send Invoice')
+    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    default_due_days INT NOT NULL,  -- Number of days until task is due after creation
+    default_assignee TEXT,  -- Default assigned user/role (optional)
+    metadata JSONB DEFAULT '{}'::JSONB,  -- Custom settings for the task
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+✅ **This allows multiple tasks to be created** for each event or lead status.
+
+---
+
+### **4️⃣ `task` (Actual Tasks Created from Templates)**
+```sql
+CREATE TABLE task (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL CHECK (type IN ('lead', 'event', 'system')),
+    related_entity_id UUID,  -- References lead ID, event ID, etc.
+    status TEXT NOT NULL,  -- Current status of the task
+    template_id UUID REFERENCES task_template(id),  -- Reference to the original template
+    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    due_date TIMESTAMP,  -- Due date (set dynamically based on default_due_days)
+    assigned_to TEXT,  -- Who this task is assigned to
+    metadata JSONB DEFAULT '{}'::JSONB,  -- Stores custom settings
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+🔹 **How tasks get created:**
+- When a **lead status** changes, all `task_template` entries matching that status are **cloned into `task`**.
+- When an **event is ingested**, all `task_template` entries matching that event are **cloned into `task`**.
+
+---
+
+### **5️⃣ `task_transition` (Tracks Task Closures and Next Steps)**
+```sql
+CREATE TABLE task_transition (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    previous_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    transition_data JSONB DEFAULT '{}'::JSONB,  -- Captures closure info and external data
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### **6️⃣ `task_schedule` (Schedules & Reminders for Tasks)**
+```sql
+CREATE TABLE task_schedule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    schedule_type TEXT NOT NULL CHECK (schedule_type IN ('reminder', 'deadline')),
+    execution_time TIMESTAMP NOT NULL,  -- When this reminder/deadline occurs
+    is_sent BOOLEAN DEFAULT FALSE,  -- Tracks if the reminder/notification was sent
+    metadata JSONB DEFAULT '{}'::JSONB,  -- Stores notification settings (e.g., message content)
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+✅ This table allows **multiple reminders per task** (e.g., **reminders 3 days before due date, on due date, and overdue reminders**).
+
+---
+
+### **7️⃣ `notification_rule` (Notification Triggers for Tasks)**
+Defines **when and how** notifications should be sent for a task.
+
+```sql
+CREATE TABLE notification_rule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_template_id UUID NOT NULL REFERENCES task_template(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK (event_type IN ('task_created', 'task_due', 'task_completed', 'task_overdue')),
+    notification_channel TEXT NOT NULL CHECK (notification_channel IN ('email', 'sms', 'push', 'slack')),
+    message_template TEXT NOT NULL,  -- Message format for the notification
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+✅ **Example Notifications**:
+- **Task Due Soon** → Send email reminder **1 day before due date**.
+- **Task Completed** → Notify manager via **Slack**.
+- **Task Overdue** → Send **SMS alert**.
+
+---
+
+## **🚀 How This Works in the UI**
+### **1️⃣ Creating Lead Statuses & Tasks**
+- Users **define lead statuses** (`lead_status`).
+- Users **define tasks that should be created** when a lead enters that status (`task_template`).
+
+### **2️⃣ Creating Events & Tasks**
+- Users **define event types** (`event_type`).
+- Users **define tasks** that should be triggered **when an event occurs** (`task_template`).
+
+### **3️⃣ Automating Task Creation**
+- When a **lead status changes**, all **matching templates** in `task_template` create tasks in `task`.
+- When an **event is ingested**, all **matching templates** in `task_template` create tasks in `task`.
+
+### **4️⃣ Managing Task Schedules & Notifications**
+- Tasks get **due dates** based on `default_due_days` in `task_template`.
+- **Reminders & deadlines** are stored in `task_schedule` and executed on schedule.
+- **Notifications** are sent based on rules in `notification_rule`.
+
+---
+
+## **✅ Benefits of This Schema**
+1. **Highly Extensible** → UI users can define their own **lead statuses, events, tasks, and workflows** without DB changes.
+2. **Dynamic Task Creation** → **Multiple tasks** are created **from templates** when a lead status or event occurs.
+3. **Automated Scheduling & Notifications** → Tasks have **due dates, reminders, and notifications** based on business logic.
+4. **Task Dependencies** → Tasks can reference each other **without interfering with unrelated workflows**.
+5. **Minimal Manual Effort** → The system **automates** lead & event-based task creation.
+
+---
+
+## **💡 Next Steps**
+Would you like to:
+1. **Define JSONB structure for rule conditions** (so UI can generate transition rules)?
+2. **Add permissions & role-based access** for task assignment?
+3. **Integrate reminders with external services** (e.g., email, Slack, Twilio for SMS)?
+
+Let me know how you'd like to refine this further! 🚀
