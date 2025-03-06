@@ -1,0 +1,140 @@
+I'll provide a **complete ERD** that includes all necessary tables, including **notification rules, task scheduling, task transitions, and event-based rule management**.  
+
+---
+
+## **📌 Key Enhancements in the Schema**
+1. **Task Template System**  
+   - Enables dynamic task creation based on lead statuses or events.  
+2. **Task Transition Rules**  
+   - Defines what happens when a task is completed (e.g., triggers a new task).  
+3. **Notification & Reminder Rules**  
+   - Supports scheduled notifications via email, SMS, or push notifications.  
+4. **Task Scheduling**  
+   - Allows periodic or recurring tasks.  
+5. **Event Processing with Rule-Driven Task Creation**  
+   - Handles both independent and dependent event-task relationships.  
+
+---
+
+## **📌 Complete ERD**
+I'll first outline the schema changes and then generate the ERD.
+
+---
+
+## **📌 Database Schema Design**
+### **1️⃣ Core Tables**
+#### **Leads Table (Tracks Incoming Leads)**
+```sql
+CREATE TABLE lead (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### **Event Table (Tracks External Events)**
+```sql
+CREATE TABLE event (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### **Task Template (Defines Task Structures)**
+```sql
+CREATE TABLE task_template (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT,
+    priority INT CHECK (priority BETWEEN 1 AND 5),  -- 1: Low, 5: High
+    default_assignee UUID REFERENCES user(id),
+    estimated_duration INTERVAL,
+    reminder_rule_id UUID REFERENCES reminder_rule(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### **Task Table (Stores Actual Tasks)**
+```sql
+CREATE TABLE task (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT CHECK (type IN ('lead', 'event')),
+    related_entity_id UUID,  -- Can point to a lead or event
+    status TEXT NOT NULL CHECK (status IN ('open', 'in_progress', 'completed', 'failed')),
+    template_id UUID REFERENCES task_template(id),
+    priority INT CHECK (priority BETWEEN 1 AND 5),
+    due_date TIMESTAMP,
+    assigned_to UUID REFERENCES user(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## **📌 Task Transitions & Rule Engine**
+#### **Task Transition Table (Tracks Status Changes)**
+```sql
+CREATE TABLE task_transition (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    previous_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    transition_time TIMESTAMP DEFAULT NOW(),
+    rule_applied UUID REFERENCES task_transition_rule(id)
+);
+```
+
+#### **Task Transition Rule (Defines When a New Task is Created)**
+```sql
+CREATE TABLE task_transition_rule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_template_id UUID NOT NULL REFERENCES task_template(id) ON DELETE CASCADE,
+    trigger_status TEXT NOT NULL CHECK (trigger_status IN ('completed', 'failed', 'expired')),
+    action TEXT NOT NULL CHECK (action IN ('create_task', 'send_notification')),
+    next_task_template_id UUID REFERENCES task_template(id),  -- If 'create_task' is chosen
+    metadata JSONB DEFAULT '{}'::JSONB, -- Stores conditions for triggering
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## **📌 Task Scheduling & Notifications**
+#### **Reminder Rules (Defines When & How to Notify Users)**
+```sql
+CREATE TABLE reminder_rule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    notification_type TEXT CHECK (notification_type IN ('email', 'sms', 'push')),
+    frequency INTERVAL NOT NULL,  -- e.g., '1 day', '3 hours'
+    max_reminders INT CHECK (max_reminders > 0),
+    metadata JSONB DEFAULT '{}'::JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### **Notification Table (Stores Sent Notifications)**
+```sql
+CREATE TABLE notification (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    recipient UUID NOT NULL REFERENCES user(id),
+    notification_type TEXT CHECK (notification_type IN ('email', 'sms', 'push')),
+    sent_at TIMESTAMP DEFAULT NOW(),
+    status TEXT CHECK (status IN ('sent', 'failed'))
+);
+```
+
+---
+
+## **📌 ERD Diagram**
+I'll generate an **Entity-Relationship Diagram (ERD)** based on this schema. Give me a moment.
+
+Here's the **Entity-Relationship Diagram (ERD)** for the Task Management System with state transitions. Let me know if you need modifications or further details! 🚀
