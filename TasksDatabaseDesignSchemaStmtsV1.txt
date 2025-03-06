@@ -1,0 +1,206 @@
+I'll create a **detailed Entity-Relationship Diagram (ERD)** along with **notes and sample SQL insert statements**. The ERD will illustrate how the tables connect, supporting **dynamic task management, state transitions, and event-triggered task creation**.  
+
+---
+
+### **📌 ERD Overview**
+#### **Key Relationships:**
+1. **Lead & Event Definitions**
+   - `lead_status` → Users define lead statuses.
+   - `event_type` → Users define external events.
+  
+2. **Task Templates**
+   - `task_template` → Defines reusable tasks that should be created when a **lead status changes** or an **event occurs**.
+
+3. **Task Management**
+   - `task` → Stores **actual tasks** created based on templates.
+   - `task_transition` → Tracks **status changes** and **closure data**.
+
+4. **Scheduling & Notifications**
+   - `task_schedule` → Stores **reminders and deadlines**.
+   - `notification_rule` → Defines **when notifications should be sent**.
+
+---
+
+## **📌 ERD (Entity-Relationship Diagram)**
+
+I'll describe the relationships below in detail, then provide SQL sample inserts.
+
+---
+
+```plaintext
++--------------------+       +--------------------+        +---------------------+
+|    lead_status    |       |    event_type      |        |   task_template     |
++--------------------+       +--------------------+        +---------------------+
+| id (PK)          | ◀───┐  | id (PK)          | ◀───┐   | id (PK)           |
+| name             |     │  | name             |     │   | type ('lead'/'event')|
+| description      |     │  | description      |     │   | related_entity_id  |
++--------------------+     │  +--------------------+     │   | name               |
+                          │                                 │   | priority ('low'...'critical') |
+                          │                                 │   | default_due_days  |
+                          │                                 │   | default_assignee  |
+                          │                                 │   +---------------------+
+                          │                                 │
+                          │                                 │
+                          ▼                                 ▼
++--------------------+       +--------------------+        +---------------------+
+|       task        |        | task_transition   |        |  task_schedule       |
++--------------------+       +--------------------+        +---------------------+
+| id (PK)          | ◀──┐   | id (PK)          |        | id (PK)           |
+| type ('lead'/'event')|   | task_id (FK)     |        | task_id (FK)      |
+| related_entity_id  |   | previous_status  |        | schedule_type     |
+| status            |   | new_status      |        | execution_time    |
+| template_id (FK)  |   | transition_data |        | is_sent (Boolean) |
+| priority          |   | created_at      |        | metadata (JSONB)  |
+| due_date         |   +--------------------+        +---------------------+
+| assigned_to      |
++--------------------+
+```
+
+---
+
+## **📌 SQL Schema Creation**
+
+### **1️⃣ Lead Status Table**
+```sql
+CREATE TABLE lead_status (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,  
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **2️⃣ Event Type Table**
+```sql
+CREATE TABLE event_type (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,  
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **3️⃣ Task Template Table**
+```sql
+CREATE TABLE task_template (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL CHECK (type IN ('lead', 'event')),  
+    related_entity_id UUID NOT NULL,  
+    name TEXT NOT NULL,  
+    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    default_due_days INT NOT NULL,  
+    default_assignee TEXT,  
+    metadata JSONB DEFAULT '{}'::JSONB,  
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **4️⃣ Task Table**
+```sql
+CREATE TABLE task (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL CHECK (type IN ('lead', 'event', 'system')),  
+    related_entity_id UUID,  
+    status TEXT NOT NULL,  
+    template_id UUID REFERENCES task_template(id),  
+    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    due_date TIMESTAMP,  
+    assigned_to TEXT,  
+    metadata JSONB DEFAULT '{}'::JSONB,  
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **5️⃣ Task Transition Table**
+```sql
+CREATE TABLE task_transition (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    previous_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    transition_data JSONB DEFAULT '{}'::JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **6️⃣ Task Schedule Table**
+```sql
+CREATE TABLE task_schedule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    schedule_type TEXT NOT NULL CHECK (schedule_type IN ('reminder', 'deadline')),
+    execution_time TIMESTAMP NOT NULL,  
+    is_sent BOOLEAN DEFAULT FALSE,  
+    metadata JSONB DEFAULT '{}'::JSONB,  
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### **7️⃣ Notification Rule Table**
+```sql
+CREATE TABLE notification_rule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_template_id UUID NOT NULL REFERENCES task_template(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK (event_type IN ('task_created', 'task_due', 'task_completed', 'task_overdue')),
+    notification_channel TEXT NOT NULL CHECK (notification_channel IN ('email', 'sms', 'push', 'slack')),
+    message_template TEXT NOT NULL,  
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## **📌 Sample Input Statements**
+
+### **1️⃣ Insert Lead Status**
+```sql
+INSERT INTO lead_status (name, description) 
+VALUES ('Contact Initiated', 'Lead has been contacted');
+```
+
+### **2️⃣ Insert Event Type**
+```sql
+INSERT INTO event_type (name, description) 
+VALUES ('Payment Received', 'Customer has made a payment');
+```
+
+### **3️⃣ Insert Task Templates**
+```sql
+-- Task for a lead status
+INSERT INTO task_template (type, related_entity_id, name, priority, default_due_days, default_assignee) 
+VALUES ('lead', (SELECT id FROM lead_status WHERE name = 'Contact Initiated'), 
+        'Follow-up Call', 'high', 2, 'sales_rep');
+
+-- Task for an event
+INSERT INTO task_template (type, related_entity_id, name, priority, default_due_days, default_assignee) 
+VALUES ('event', (SELECT id FROM event_type WHERE name = 'Payment Received'), 
+        'Send Payment Confirmation Email', 'medium', 1, 'support_team');
+```
+
+### **4️⃣ Create Tasks from Templates**
+```sql
+-- When a lead moves to 'Contact Initiated'
+INSERT INTO task (type, related_entity_id, status, template_id, priority, due_date, assigned_to)
+SELECT 'lead', ls.id, 'open', tt.id, tt.priority, NOW() + INTERVAL '2 days', tt.default_assignee
+FROM lead_status ls
+JOIN task_template tt ON tt.related_entity_id = ls.id
+WHERE ls.name = 'Contact Initiated' AND tt.type = 'lead';
+```
+
+### **5️⃣ Insert a Task Transition**
+```sql
+INSERT INTO task_transition (task_id, previous_status, new_status, transition_data)
+VALUES ((SELECT id FROM task WHERE status = 'open' LIMIT 1), 'open', 'in_progress', '{"reason": "User started working"}');
+```
+
+---
+
+## **📌 Conclusion**
+✅ This schema supports:
+- **Custom lead statuses & event types** (UI-driven).
+- **Dynamic task creation** using templates.
+- **Task progress tracking** via transitions.
+- **Task scheduling & notifications** for reminders.
+  
+💡 **Would you like to add role-based access for tasks and actions?** 🚀
