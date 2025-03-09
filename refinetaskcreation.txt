@@ -1,0 +1,179 @@
+### **🔹 Refining the Task Auto-Creation Logic Based on Your Workflow**
+
+From our discussion, your **task workflow** follows these key rules:  
+
+✅ **AM Task Creation (Before 11:30 AM)**
+- If a **lead arrives before 11:30 AM**, create an **AM task**.  
+- If an **AM task is closed before 11:30 AM**, create a **PM task for the same day**.  
+
+✅ **PM Task Creation (After 11:30 AM)**
+- If the **AM task is not closed before 11:30 AM**, no PM task is created.  
+- If the **AM task is overdue and then closed later**, create the **next eligible task** based on lead duration rules.  
+
+✅ **Next-Day Task Creation**
+- The **scheduler at midnight** should generate the **next-day task** dynamically.  
+- Tasks should **not be pre-created for future dates** to avoid unnecessary overhead.  
+
+---
+
+## **🔹 Updated Database Schema**
+### **🛠 New Additions:**
+1. **task_rule:** Defines task generation rules for each lead status.  
+2. **task_trigger:** Stores the logic of when tasks should be created.  
+3. **task_schedule:** Tracks scheduled and overdue tasks separately.  
+
+```sql
+-- Stores the rules for task generation based on lead status and duration
+CREATE TABLE task_rule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_status_id UUID REFERENCES lead_status(id),
+    min_days INT NOT NULL, -- Min duration in days
+    max_days INT NOT NULL, -- Max duration in days
+    task_type VARCHAR(50) NOT NULL, -- "Call", "Email", "Text"
+    time_of_day VARCHAR(10) CHECK (time_of_day IN ('AM', 'PM', 'DAILY')), 
+    due_time TIME NOT NULL
+);
+
+-- Tracks task generation events
+CREATE TABLE task_trigger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_id UUID REFERENCES lead(id),
+    created_task_id UUID REFERENCES task(id),
+    trigger_type VARCHAR(50) CHECK (trigger_type IN ('AM_CLOSED_BEFORE_DUE', 'TASK_OVERDUE', 'STATUS_TRANSITION')),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Stores actual task instances
+CREATE TABLE task_schedule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_id UUID REFERENCES lead(id),
+    task_type VARCHAR(50) NOT NULL,
+    due_date DATE NOT NULL,
+    due_time TIME NOT NULL,
+    status VARCHAR(50) CHECK (status IN ('Pending', 'Completed', 'Overdue'))
+);
+```
+
+---
+
+## **🔹 Task Generator Service (Java Implementation)**  
+
+### **1️⃣ Generate AM/PM Tasks Dynamically**  
+This method **checks** if the task needs an **AM or PM** generation **on the same day**.
+
+```java
+public void generateTaskForLead(UUID leadId, LocalDate leadCreatedDate) {
+    LocalDate today = LocalDate.now();
+    LocalTime currentTime = LocalTime.now();
+
+    // Fetch rules based on lead status & duration
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new LeadNotFoundException(leadId));
+    int leadDuration = Period.between(leadCreatedDate, today).getDays();
+
+    List<TaskRule> applicableRules = taskRuleRepository.findRulesByLeadStatus(lead.getStatus(), leadDuration);
+
+    for (TaskRule rule : applicableRules) {
+        if (rule.getTimeOfDay().equals("AM") && currentTime.isBefore(LocalTime.of(11, 30))) {
+            createTask(leadId, rule.getTaskType(), today, rule.getDueTime());
+        } else if (rule.getTimeOfDay().equals("PM") && !taskExists(leadId, today, "PM")) {
+            createTask(leadId, rule.getTaskType(), today, rule.getDueTime());
+        }
+    }
+}
+
+private void createTask(UUID leadId, String taskType, LocalDate dueDate, LocalTime dueTime) {
+    TaskSchedule newTask = new TaskSchedule(leadId, taskType, dueDate, dueTime, "Pending");
+    taskScheduleRepository.save(newTask);
+}
+```
+
+---
+
+### **2️⃣ AM Task Closure: Auto-Creation of PM Task**
+- **If the AM task is closed before 11:30 AM, create a PM task.**
+- **Ensure PM task is not duplicated.**  
+
+```java
+public void closeTask(UUID taskId, UUID userId) {
+    TaskSchedule task = taskScheduleRepository.findById(taskId)
+        .orElseThrow(() -> new TaskNotFoundException(taskId));
+
+    task.setStatus("Completed");
+    taskScheduleRepository.save(task);
+
+    // If AM task closed before 11:30 AM, create PM task
+    if (task.getDueTime().isBefore(LocalTime.of(12, 0)) && LocalTime.now().isBefore(task.getDueTime())) {
+        generatePMTask(task.getLeadId());
+    }
+}
+
+private void generatePMTask(UUID leadId) {
+    LocalDate today = LocalDate.now();
+
+    if (!taskExists(leadId, today, "PM")) {
+        TaskSchedule pmTask = new TaskSchedule(leadId, "Call", today, LocalTime.of(17, 0), "Pending");
+        taskScheduleRepository.save(pmTask);
+    }
+}
+
+private boolean taskExists(UUID leadId, LocalDate date, String timeOfDay) {
+    return taskScheduleRepository.existsByLeadIdAndDueDateAndTimeOfDay(leadId, date, timeOfDay);
+}
+```
+
+---
+
+### **3️⃣ Scheduled Task Generation at Midnight**
+- **Runs at midnight** to create **tasks for the next day**, based on status duration rules.
+
+```java
+@Scheduled(cron = "0 0 0 * * *") // Runs at midnight
+public void scheduleNextDayTasks() {
+    LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+    List<Lead> activeLeads = leadRepository.findAllActiveLeads();
+    for (Lead lead : activeLeads) {
+        int leadDuration = Period.between(lead.getCreatedAt().toLocalDate(), tomorrow).getDays();
+        List<TaskRule> rules = taskRuleRepository.findRulesByLeadStatus(lead.getStatus(), leadDuration);
+
+        for (TaskRule rule : rules) {
+            if (rule.getTimeOfDay().equals("AM")) {
+                createTask(lead.getId(), rule.getTaskType(), tomorrow, rule.getDueTime());
+            }
+        }
+    }
+}
+```
+
+---
+
+## **🔹 Example Scenario**
+### **Scenario: Lead Enters "Active Uncontacted"**
+| Day | Task Type | Time of Day | Due Time |
+|-----|----------|------------|----------|
+| 1   | Text, Call, Mail | AM | 11:30 AM |
+| 1   | Text, Call, Mail | PM (if AM closed early) | 5:00 PM |
+| 2-5 | Text, Call, Mail | AM | 11:30 AM |
+| 2-5 | Text, Call, Mail | PM (if AM closed early) | 5:00 PM |
+| 6-14 | Text, Call, Mail | Daily | 11:30 AM |
+| 15-30 | Text, Mail | Daily | 11:30 AM |
+| 30-45 | Mail | Daily | 11:30 AM |
+
+### **How This Works**
+1️⃣ **Day 1, 10:30 AM:** AM Task Created (Text, Call, Mail).  
+2️⃣ **User Closes AM Task at 10:45 AM:** PM Task Created at 5:00 PM.  
+3️⃣ **Day 2 Midnight Scheduler:** AM Task for Day 2 Generated.  
+4️⃣ **User Closes Task Late on Day 2:** Scheduler picks up correct rule for next day.  
+
+---
+
+## **🔹 Final Takeaways**
+✅ **Real-time AM/PM task handling avoids interference with the scheduler.**  
+✅ **Midnight scheduler only handles next-day tasks.**  
+✅ **Rules stored in DB for flexibility & future UI integration.**  
+✅ **Prevents duplicate task creation with indexing & validation.**  
+
+---
+
+Would you like me to refine the **rule structure** or **optimize performance** further? 🚀
