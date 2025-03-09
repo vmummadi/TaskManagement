@@ -1,0 +1,63 @@
+Yes, this can be handled within the **database itself** by making the task creation logic **relative to either `created_at` or `appointment_date` dynamically**. This way, the **same query structure** can be used for all lead statuses, making the code uniform.
+
+---
+
+### **Handling Tasks Relative to `created_at` and `appointment_date` in DB**
+We introduce a **new column in the `task_rule` table** to indicate whether the task should be created relative to the lead’s `created_at` (default) or `appointment_date`.
+
+#### **Updated `task_rule` Table**
+| Column         | Type         | Description |
+|---------------|-------------|-------------|
+| task_rule_id  | UUID (PK)    | Unique ID for the rule |
+| lead_status_id | UUID (FK)   | Status the rule applies to (e.g., "Active - Appt Open") |
+| task_name     | TEXT         | Name of the task (e.g., "Confirm Appt Text") |
+| execution_time | TIME        | Time of the day when the task should be created |
+| min_days      | INT         | Days from `created_at` or `appointment_date` when the task is due |
+| **relative_to** | ENUM('created_at', 'appointment_date') | Whether to calculate `min_days` from `created_at` (default) or `appointment_date` |
+
+---
+
+### **SQL Query for Fetching Tasks with Dynamic Date Handling**
+```sql
+SELECT 
+    l.lead_id,
+    l.created_at,
+    l.appointment_date,
+    tr.task_name,
+    tr.execution_time,
+    tr.min_days,
+    tr.relative_to,
+    CASE 
+        WHEN tr.relative_to = 'appointment_date' THEN l.appointment_date + (tr.min_days || ' days')::INTERVAL
+        ELSE l.created_at + (tr.min_days || ' days')::INTERVAL
+    END AS task_due_date
+FROM lead l
+JOIN task_rule tr ON l.lead_status_id = tr.lead_status_id
+WHERE 
+    ((tr.relative_to = 'appointment_date' AND l.appointment_date IS NOT NULL) OR tr.relative_to = 'created_at')
+    AND CURRENT_DATE = 
+        CASE 
+            WHEN tr.relative_to = 'appointment_date' THEN l.appointment_date + (tr.min_days || ' days')::INTERVAL
+            ELSE l.created_at + (tr.min_days || ' days')::INTERVAL
+        END;
+```
+
+---
+
+### **How This Query Works**
+- **For normal tasks (relative to `created_at`)** → Uses `created_at + min_days`
+- **For appointment-related tasks** → Uses `appointment_date + min_days`
+- The `relative_to` column determines whether to use `created_at` or `appointment_date`.
+- The `CASE` statement ensures that we fetch only tasks due **on the current date**.
+- This ensures **uniform task scheduling logic** in SQL itself.
+
+---
+
+### **How This Simplifies the Application Code**
+✅ **No need for separate logic in Java**—query directly determines whether to use `created_at` or `appointment_date`.  
+✅ **Handles all lead statuses dynamically** without needing separate queries.  
+✅ **Ensures future extensibility**—if new lead statuses need different rules, just update the DB.
+
+---
+
+### **Would You Like Help Translating This into Java Code?** 🚀
