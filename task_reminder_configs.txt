@@ -1,0 +1,249 @@
+✅ Enhanced Task Schema with Reminder Configuration
+Instead of creating a separate task_reminder table, embed the reminder configuration inside the task as JSON.
+This allows:
+
+Default reminders configured by system-generated tasks
+User overrides post-task creation
+Different reminders for different task_type
+sql
+Copy
+Edit
+CREATE TABLE task (
+    id SERIAL PRIMARY KEY,
+    lead_id INT NOT NULL,
+    task_type VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    due_date DATE NOT NULL,
+    due_time TIME,  -- Optional: useful for AM/PM tasks
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reminder_config JSONB DEFAULT '{}'  -- Flexible reminder configuration
+);
+✅ Example reminder_config JSON
+The reminder_config stores reminder settings like:
+
+When (relative to due_date / due_time)
+Method (SMS, Email, Push)
+Repeating logic
+json
+Copy
+Edit
+{
+  "reminders": [
+    {
+      "offset_minutes": -60,    // 1 hour before due_time
+      "channel": "email"
+    },
+    {
+      "offset_minutes": -15,    // 15 mins before
+      "channel": "sms"
+    },
+    {
+      "offset_minutes": 0,      // At due time
+      "channel": "push"
+    }
+  ]
+}
+✅ How This Supports User Customization
+When the task is auto-created, the system injects default reminder_config based on the task_type.
+
+Example: "Call Lead" tasks get phone & SMS reminders
+"Send Email" tasks get email-only reminders
+The frontend or user settings API allows the user to:
+
+View reminders
+Edit them (change offset or channel)
+Disable or add new reminders
+The scheduler reads reminder_config at runtime, computes due reminders, and sends them.
+
+✅ Example Usage for Different Task Types
+task_type	Default Reminder Config (JSON)
+Call Lead	[{"offset_minutes": -30, "channel": "sms"}, {"offset_minutes": 0, "channel": "push"}]
+Send Email	[{"offset_minutes": -60, "channel": "email"}]
+Confirm Appt	[{"offset_minutes": -1440, "channel": "email"}, {"offset_minutes": -60, "channel": "sms"}]
+✅ Reminder Processing Logic (Scheduler)
+The reminder scheduler runs periodically (every minute):
+
+sql
+Copy
+Edit
+SELECT * FROM task 
+WHERE status = 'Pending' 
+AND reminder_config IS NOT NULL 
+AND (
+  CURRENT_TIMESTAMP >= (due_date + due_time - interval '1 minute' * (reminder.offset_minutes))
+);
+For each triggered reminder: ✅ Send the appropriate channel message
+✅ Mark the reminder as sent (optional: store reminders_sent array)
+
+✅ Benefits of This Design
+🧠 Flexible: Any number of reminders, channels, timings
+📱 User-friendly: User can override system defaults
+📦 Simple schema: JSON avoids over-normalization
+⚡ Fast processing: Single query can fetch due reminders
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+✅ Where Is the Initial Reminder Configuration Stored?
+Task Template / Task Rule Level — initial defaults live here
+When the system generates the task, it looks up the task_rule or task_template table for the default reminder_config
+Then injects the default JSON into the task.reminder_config
+Example task_template table:
+sql
+Copy
+Edit
+CREATE TABLE task_template (
+    id SERIAL PRIMARY KEY,
+    task_type VARCHAR(50) NOT NULL,
+    default_reminder_config JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+Example row:
+json
+Copy
+Edit
+{
+  "reminders": [
+    { "offset_minutes": -60, "channel": "email" },
+    { "offset_minutes": -15, "channel": "sms" }
+  ]
+}
+✅ UI Editing / Customization Flow
+🔄 Step 1: Fetch Task Details
+API fetches task including the reminder_config JSON
+UI displays reminders in editable form:
+Offset (e.g., 1 hour before due)
+Channel (dropdown: Email / SMS / Push)
+🔄 Step 2: User Edits or Adds a Reminder
+Frontend allows:
+Adding a new reminder (offset + channel)
+Editing existing ones
+Removing unnecessary reminders
+User saves changes
+🔄 Step 3: Update API
+API receives updated JSON and runs:
+sql
+Copy
+Edit
+UPDATE task SET reminder_config = :updatedReminderJson, updated_at = NOW() WHERE id = :taskId;
+✅ Example Reminder Update JSON Sent from Frontend
+json
+Copy
+Edit
+{
+  "reminders": [
+    { "offset_minutes": -120, "channel": "email" },  // changed to 2 hrs before
+    { "offset_minutes": -30, "channel": "sms" }      // user added SMS reminder
+  ]
+}
+✅ How It All Connects: Full Lifecycle
+Stage	Data Source	Action
+Task Creation	task_template.default_reminder_config	System pulls default reminders from the template and stores in task.reminder_config
+Display on UI	task.reminder_config	API sends reminder_config JSON to the frontend
+User Edits Reminder	Frontend / API	User edits, API saves updated JSON in task.reminder_config
+Scheduler Runs	task.reminder_config	Evaluates the reminders JSON, computes when each reminder fires
+Reminder Sent	Execution / Audit Trail	Optionally, update a reminders_sent JSON column or log reminder history
+✅ Optional (Advanced) - Track Reminder History
+sql
+Copy
+Edit
+ALTER TABLE task ADD COLUMN reminders_sent JSONB DEFAULT '[]';
+Example:
+
+json
+Copy
+Edit
+[
+  { "sent_at": "2025-03-10T10:30:00Z", "channel": "email" },
+  { "sent_at": "2025-03-10T11:00:00Z", "channel": "sms" }
+]
+✅ Benefits
+📥 User Control: Full control to modify reminders per task
+🏷 Templated Defaults: System initializes sensible defaults
+⚙ Simple Storage: JSONB keeps schema light and extensible
+🔄 Consistent Workflow: Same logic for default + user-overridden reminders
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+✅ Enhancing the reminder_config to Support Recurrence
+You need to extend the reminder JSON to include a repeat_until_closed: true flag.
+
+Example:
+json
+Copy
+Edit
+{
+  "reminders": [
+    { "offset_minutes": -60, "channel": "email", "repeat_until_closed": true, "repeat_interval_minutes": 1440 }
+  ]
+}
+Where:
+
+repeat_until_closed: true tells the scheduler to keep sending
+repeat_interval_minutes: 1440 = 24 hours (daily)
+✅ Reminder Sent Log (reminders_sent JSONB or a Table)
+Store when and what reminders were sent:
+
+json
+Copy
+Edit
+[
+  { "sent_at": "2025-03-10T10:30:00Z", "channel": "email", "reminder_index": 0 }
+]
+Or normalized in a table:
+
+sql
+Copy
+Edit
+CREATE TABLE reminder_sent (
+    id SERIAL PRIMARY KEY,
+    task_id INT REFERENCES task(id),
+    reminder_index INT,  -- Which reminder in the config
+    channel VARCHAR(20),
+    sent_at TIMESTAMP
+);
+✅ Scheduler Logic to Determine if Reminder Should Fire
+For each task where task.status != 'closed', evaluate:
+
+Iterate through reminder_config.reminders
+If repeat_until_closed = true
+Check the last sent timestamp of this reminder (reminder_index) from reminders_sent
+If last sent is null or (now - last_sent) >= repeat_interval, queue the reminder
+✅ Sample Pseudocode for Scheduler
+java
+Copy
+Edit
+for (Task task : openTasks) {
+    JsonNode reminders = task.getReminderConfig();
+    for (int i = 0; i < reminders.size(); i++) {
+        JsonNode reminder = reminders.get(i);
+        if (reminder.get("repeat_until_closed").asBoolean()) {
+            Instant lastSent = fetchLastReminderSent(task.getId(), i);
+            Duration repeatInterval = Duration.ofMinutes(reminder.get("repeat_interval_minutes").asInt());
+            if (lastSent == null || Duration.between(lastSent, Instant.now()).compareTo(repeatInterval) >= 0) {
+                sendReminder(task, reminder.get("channel").asText());
+                logReminderSent(task.getId(), i, reminder.get("channel").asText());
+            }
+        }
+    }
+}
+✅ How Closing the Task Stops the Cycle
+Task status changes to closed
+Scheduler filters out WHERE status != 'closed'
+No further reminders sent
+✅ Optional: Expose Reminder Config Edits via UI
+Allow users to:
+
+Edit repeat_until_closed
+Change repeat_interval
+Add/Remove reminders
+View the last reminder sent
+✅ Benefits
+✅ Fully dynamic
+✅ User-customizable
+✅ Scalable: repeat interval is flexible (hourly, daily, weekly)
+✅ Keeps history for compliance / troubleshooting
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
