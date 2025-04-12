@@ -1,0 +1,133 @@
+Here’s a clean and well-organized **Google Sheet template** for documenting all PostgreSQL database roles/users and privileges across environments, hosted in AWS. This format is designed to be both human-readable and referenceable for developers, analysts, or DevOps engineers who need to connect to relevant databases.
+
+---
+
+### ✅ Google Sheet Template (copy-paste ready):
+
+```
+Environment	| Database Name	| DB Host (Endpoint)	| Port	| DB Username	| Role Type (e.g., Admin/Reader/Writer)	| Privileges (SELECT/INSERT/UPDATE...)	| Associated Schemas/Tables	| Connection URL	| IAM Auth Enabled (Yes/No)	| Notes
+```
+
+### 📌 Example Row (paste under headers for clarity):
+
+```
+dev	        | customer_db	    | dev-db.cluster-xxxx.rds.amazonaws.com	| 5432	| cust_reader	| Reader	| SELECT	                            | public.customer, public.orders	    | postgres://cust_reader@dev-db.cluster-xxxx.rds.amazonaws.com:5432/customer_db	| No	               | Read-only user for analytics
+qa	        | analytics_db	    | qa-db.cluster-yyyy.rds.amazonaws.com	    | 5432	| analytics_admin	| Admin	    | ALL	                                | ALL	                                | postgres://analytics_admin@qa-db.cluster-yyyy.rds.amazonaws.com:5432/analytics_db	| Yes	           | IAM role-based login
+prod	    | orders_db	        | prod-db.cluster-zzzz.rds.amazonaws.com	| 5432	| order_writer	| Writer	| SELECT, INSERT, UPDATE	            | orders, inventory	                    | postgres://order_writer@prod-db.cluster-zzzz.rds.amazonaws.com:5432/orders_db	| No	               | Writes order data from the service
+```
+
+---
+
+### 📖 Column Descriptions:
+
+| Column | Description |
+|--------|-------------|
+| `Environment` | `dev`, `qa`, `staging`, `prod`, etc. |
+| `Database Name` | Logical DB name (e.g., `customer_db`) |
+| `DB Host (Endpoint)` | RDS/Aurora hostname |
+| `Port` | Usually `5432` |
+| `DB Username` | Username or role used to connect |
+| `Role Type` | High-level type of role – Reader, Writer, Admin, etc. |
+| `Privileges` | Specific SQL privileges granted (e.g., `SELECT`, `INSERT`) |
+| `Associated Schemas/Tables` | List of schemas or tables the user has access to |
+| `Connection URL` | Standard PostgreSQL JDBC/URI connection string |
+| `IAM Auth Enabled` | Is AWS IAM authentication enabled for the user? |
+| `Notes` | Any other relevant info – e.g., rotation policy, ownership, etc. |
+
+---
+
+Would you like me to generate this in `.csv` or provide a downloadable Google Sheets link with some sample data too?
+
+
+
+
+
+
+
+
+
+
+Sure! Here's a SQL query you can run on each PostgreSQL instance to **list all users/roles and their privileges across schemas and tables**:
+
+---
+
+### 🔍 **Query to List User Privileges on Tables (All Roles)**
+
+```sql
+SELECT 
+    grantee AS db_username,
+    table_schema,
+    table_name,
+    privilege_type
+FROM 
+    information_schema.role_table_grants
+ORDER BY 
+    grantee, table_schema, table_name;
+```
+
+---
+
+### 🛠 If you want more detailed info per role:
+
+You can use this extended version to also include object type and grantor:
+
+```sql
+SELECT 
+    grantee AS db_username,
+    table_schema,
+    table_name,
+    privilege_type,
+    grantor,
+    is_grantable
+FROM 
+    information_schema.role_table_grants
+ORDER BY 
+    grantee, table_schema, table_name, privilege_type;
+```
+
+---
+
+### 🧠 Optional: List all users and their roles (membership info)
+
+```sql
+SELECT 
+    r.rolname AS role_name,
+    ARRAY(
+        SELECT b.rolname
+        FROM pg_auth_members m
+        JOIN pg_roles b ON (m.roleid = b.oid)
+        WHERE m.member = r.oid
+    ) AS member_of
+FROM pg_roles r
+WHERE r.rolcanlogin = true
+ORDER BY role_name;
+```
+
+---
+
+### 🧾 For schemas and sequence privileges too:
+
+#### Schema privileges:
+```sql
+SELECT 
+    grantee,
+    schema_name,
+    privilege_type
+FROM information_schema.role_schema_grants
+ORDER BY grantee, schema_name;
+```
+
+#### Sequence privileges:
+```sql
+SELECT 
+    grantee,
+    sequence_schema,
+    sequence_name,
+    privilege_type
+FROM information_schema.role_sequence_grants
+ORDER BY grantee, sequence_schema, sequence_name;
+```
+
+---
+
+Would you like a script that loops through all databases on a server and runs this on each? Or want this saved to a CSV automatically using `psql` or `pg_dump` format?
