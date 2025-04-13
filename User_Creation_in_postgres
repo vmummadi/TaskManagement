@@ -1,0 +1,81 @@
+Create Scripts for users across environments
+
+Great! Below is a clean and well-commented set of **SQL scripts** to create the roles you described in PostgreSQL, with access scoped to the **default `public` schema**:
+
+---
+
+## ✅ **SQL Script: Role Creation and Privilege Grants**
+
+```sql
+-- ========================
+-- STEP 1: Create Roles
+-- ========================
+
+-- Read-only role: can only SELECT data
+CREATE ROLE readonly_user WITH LOGIN PASSWORD 'your_secure_password_here';
+
+-- Read-write-update role: can SELECT, INSERT, UPDATE, DELETE, CREATE, DROP
+CREATE ROLE readwrite_user WITH LOGIN PASSWORD 'your_secure_password_here';
+
+-- Admin role: has full control, including GRANT permissions
+CREATE ROLE admin_user WITH LOGIN PASSWORD 'your_secure_password_here';
+
+-- ========================
+-- STEP 2: Grant Usage on Schema
+-- ========================
+
+-- All roles must have USAGE on the schema to access objects within it
+GRANT USAGE ON SCHEMA public TO readonly_user;
+GRANT USAGE ON SCHEMA public TO readwrite_user;
+GRANT USAGE ON SCHEMA public TO admin_user;
+
+-- ========================
+-- STEP 3: Grant Privileges on Tables
+-- ========================
+
+-- Grant read-only access: SELECT only
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;
+
+-- Grant read-write access: SELECT, INSERT, UPDATE, DELETE
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO readwrite_user;
+
+-- Grant admin access: ALL privileges (includes CREATE, DROP, etc.)
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin_user;
+
+-- ========================
+-- STEP 4: Ensure Future Tables Get the Right Privileges Automatically
+-- ========================
+
+-- Ensure any new table created in public schema gets these permissions automatically
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT ON TABLES TO readonly_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO readwrite_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT ALL ON TABLES TO admin_user;
+
+-- ========================
+-- STEP 5: Optional – Grant CREATE privileges on schema
+-- ========================
+
+-- Allows roles to create tables in the schema
+GRANT CREATE ON SCHEMA public TO readwrite_user;
+GRANT CREATE ON SCHEMA public TO admin_user;
+```
+
+---
+
+## 🧠 Notes:
+
+- `WITH LOGIN`: Allows these roles to authenticate.
+- `USAGE ON SCHEMA`: Required to access any objects within the schema.
+- `DEFAULT PRIVILEGES`: Ensures privileges apply **to new tables created in the future**.
+- `GRANT CREATE ON SCHEMA`: Needed for creating tables, views, etc., in the schema.
+- You can further extend this script for sequences, functions, or other object types if needed.
+
+---
+
+Would you like a version of this script where `readonly_user`, `readwrite_user`, and `admin_user` are **role groups**, and actual users are members of those roles instead? That’s useful for RBAC models.
